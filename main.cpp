@@ -1,27 +1,30 @@
 #include <iostream>
 #include "Log.h"
 
-void FunctionA(int* value){
-    (*value)++;
-}
+class Player
+{   
+public:
+    int x, y;
+    int speed;
 
-void FunctionB(int& value){
-    value += 2;
-}
+    void Move(int xa,int ya)
+    {
+        x += xa * speed;
+        y += ya * speed;
+    }
+};
 
-int main(int, char**){
-    int a = 5;
-    int b = 10;
 
-    int& ref = a;
-    ref = b;
-    ref++;
-    std::cout << "a: " << a << ", b: " << b << std::endl;
+int main(int, char**)
+{
+    Player player;
+    player.x = 10;
+    player.y = 10;
+    player.speed = 2;
 
-    // FunctionA(&a);
-    // std::cout << a << std::endl;
-    // FunctionB(a);
-    // std::cout << a << std::endl;
+    player.Move(2,0);
+
+    std::cout << "Player x: " << player.x << " y : " << player.y << std::endl;
     return 0;
 }
                                                                                                                     
