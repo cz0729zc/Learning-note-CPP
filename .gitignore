@@ -1,6 +1,6 @@
 # Ignore CMake build output
-out/
+out
 
 # VS Code settings (optional, if you commit this repo elsewhere you can keep it)
 .vscode/
-out/build/GCC 15.2.0 x86_64-w64-mingw32 (ucrt64)/
+CMakePresets.json
