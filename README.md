@@ -137,12 +137,13 @@ int main() {
 
 ## 静态成员与对象实例 (Static Members)
 
-在学习 `Entity` 时，遇到两个典型问题：
+这一部分结合 Cherno 的几集讲解和自己的代码实践，总结 C++ 中 `static` 的几个核心场景：
 
-1. 类中成员变量/函数加上 `static` 会发生什么？
-2. 为什么只在类里写 `static int x, y;` 会出现 `undefined reference to Entity::x`？
+1. **类的静态成员变量 / 静态成员函数**：属于“类本身”，而不是某个具体对象。
+2. **静态成员 vs 普通成员**：是否每个对象一份，还是所有对象共享一份。
+3. **全局变量 vs static 成员**：为什么更推荐把“全局状态”放到类中。
 
-### 代码示例
+### 1. 类的静态成员变量与链接错误
 
 ```cpp
 class Entity
@@ -156,7 +157,7 @@ public:
     }
 };
 
-// 类外必须提供一次定义，否则会链接错误（undefined reference）
+// 类外必须提供一次“定义”，否则会链接错误（undefined reference）
 int Entity::x;
 int Entity::y;
 
@@ -174,12 +175,134 @@ int main()
 }
 ```
 
-### 思考过程小结
+> [!IMPORTANT]
+> **声明 vs 定义**
+>
+> * 类内的 `static int x, y;` 只是**声明**，不会分配内存。
+> * 必须在类外写一次 `int Entity::x; int Entity::y;` 作为**定义**，为静态成员分配存储空间。
 
-* `static int x, y;` 在类内只是**声明**，不会分配内存；真正的定义需要在类外写 `int Entity::x; int Entity::y;`。
-* 静态成员变量是“类级别”的，全局共享一份，所有对象（`e`、`e1`）看到的是同一个 `x`、`y`。
-* 静态成员函数没有 `this` 指针，只能访问静态成员（如 `x`、`y`），不能直接访问非静态成员；如果把 `x, y` 改成非静态，而 `Print` 还保持 `static`，会编译报错。
-* 如果希望每个对象有自己的坐标，而不是共享一份，就应该去掉 `static`，把 `Print` 也改成普通成员函数，然后通过对象访问：`e.x = 5; e.y = 8; e.Print();`。
+### 2. static 成员变量 vs 普通成员变量
+
+```cpp
+// 每个对象一份（非 static）
+class EntityInstance {
+public:
+    int x, y;
+
+    void Print() {
+        std::cout << x << ", " << y << std::endl;
+    }
+};
+
+// 全部对象共享一份（static）
+class EntityShared {
+public:
+    static int x, y;
+
+    static void Print() {
+        std::cout << x << ", " << y << std::endl;
+    }
+};
+
+int EntityShared::x;
+int EntityShared::y;
+
+int main() {
+    EntityInstance a;
+    a.x = 1; a.y = 2;
+
+    EntityInstance b;
+    b.x = 3; b.y = 4;
+
+    a.Print(); // 1, 2
+    b.Print(); // 3, 4  -> 各自独立
+
+    EntityShared::x = 5;
+    EntityShared::y = 6;
+    EntityShared::Print(); // 5, 6
+
+    EntityShared::x = 7;
+    EntityShared::y = 8;
+    EntityShared::Print(); // 7, 8  -> 所有“实体”看到的都是同一份值
+}
+```
+
+> [!IMPORTANT]
+> **对象 vs 类本身**
+>
+> * 普通成员变量：每个对象一份，`a.x` 和 `b.x` 是两块不同的内存。
+> * 静态成员变量：类共享一份，通过 `EntityShared::x` 访问，所有对象看到的是同一块内存。
+
+### 3. static 成员函数 与 普通成员函数
+
+```cpp
+class Example {
+public:
+    int value = 0;          // 普通成员变量
+    static int s_Value;     // 静态成员变量
+
+    void NormalMethod() {
+        // 可以访问 this 上的一切
+        value = 10;
+        s_Value = 20;
+    }
+
+    static void StaticMethod() {
+        // 没有 this 指针，只能访问静态成员
+        // value = 10;      // ❌ 编译错误：不能在 static 里访问非 static 成员
+        s_Value = 20;       // ✅ OK
+    }
+};
+
+int Example::s_Value = 0;
+```
+
+> [!TIP]
+> **搭配使用的规则**
+>
+> * 想访问对象自己的状态：用「非 static 成员变量 + 非 static 成员函数」。
+> * 想做“全类共享的状态 / 工具函数”：用「static 成员变量 + static 成员函数」。
+
+### 4. 全局变量 vs static 成员：为什么更推荐 static
+
+```cpp
+// 全局变量写法（不推荐）
+int g_LogLevel = 0;
+
+void Log(const char* message) {
+    if (g_LogLevel > 0)
+        std::cout << message << std::endl;
+}
+
+// 使用 static 成员的写法（更清晰）
+class Logger {
+public:
+    static int s_LogLevel;
+
+    static void Log(const char* message) {
+        if (s_LogLevel > 0)
+            std::cout << message << std::endl;
+    }
+};
+
+int Logger::s_LogLevel = 0;
+```
+
+> [!NOTE]
+> **为什么不用裸的全局变量**
+>
+> * 全局变量任何地方都能改，作用域太大，不利于维护。
+> * static 成员变量挂在类名下（例如 `Logger::s_LogLevel`），表达了“这个状态属于 Logger”，更符合面向对象的设计。
+
+### 5. 小结：什么时候用 static？
+
+> [!NOTE]
+> **static 使用场景小抄**
+>
+> * 想让“所有对象共享某个状态”（例如：计数器、全局配置）：用 `static` 成员变量。
+> * 想写一个不依赖具体对象的工具函数，但和这个类逻辑相关：用 `static` 成员函数。
+> * 想要“每个对象有自己的那一份”：不要用 `static`，用普通成员变量 + 普通成员函数。
+> * 避免随手丢一个真正的全局变量，优先考虑放到类的 `static` 成员里，让状态有一个清晰的“归属”。
 
 
 
