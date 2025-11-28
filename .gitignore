@@ -1,0 +1,5 @@
+# Ignore CMake build output
+/out/
+
+# VS Code settings (optional, if you commit this repo elsewhere you can keep it)
+.vscode/

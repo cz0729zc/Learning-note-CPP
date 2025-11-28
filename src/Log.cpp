@@ -1,9 +1,25 @@
+#include "Log.h"
 #include <iostream>
 
-void LogInit(){
-    std::cout << "Log Initialized." << std::endl;
+void Log::SetLevel(LogLevel newLevel)
+{
+    level = newLevel;
 }
 
-void Log(const char* message){
-    std::cout << "Log: " << message << std::endl;
+void Log::info(const char* message)
+{
+    if (level <= LogLevelInfo)
+        std::cout << "[INFO]: " << message << std::endl;
+}
+
+void Log::warn(const char* message)
+{
+    if (level <= LogLevelWarning)
+        std::cout << "[WARNING]: " << message << std::endl;
+}
+
+void Log::error(const char* message)
+{
+    if (level <= LogLevelError)
+        std::cout << "[ERROR]: " << message << std::endl;
 }

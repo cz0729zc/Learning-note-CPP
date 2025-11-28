@@ -96,3 +96,41 @@ public: // 需要显式声明 public 才能达到与 struct 相同的效果
 > **存在的意义**
 > C++ 保留 `struct` 主要是为了保持与 C 语言的向后兼容性。
 
+---
+
+## 类作用域与枚举访问 (Log::LogLevelWarning)
+
+在学习 `Log` 日志类时，有一个容易混淆的问题：为什么在 `main.cpp` 中要写 `Log::LogLevelWarning`，而不能写成 `log.LogLevelWarning`？
+
+### 思考过程小结
+
+```cpp
+class Log {
+public:
+    enum LogLevel {
+        LogLevelInfo,
+        LogLevelWarning,
+        LogLevelError
+    };
+
+    void SetLevel(LogLevel level);
+};
+
+int main() {
+    Log log;
+    log.SetLevel(Log::LogLevelWarning); // ✅ 正确用法
+    // log.LogLevelWarning;             // ❌ C++ 不支持这种写法
+}
+```
+
+* `LogLevel` 是定义在 `class Log` 内部的**枚举类型**，`LogLevelWarning` 是这个枚举里的**枚举值**。
+* 它们属于 **类的作用域**，而不是某个对象的成员变量，所以在类外访问时需要写成 `Log::LogLevel`、`Log::LogLevelWarning`。
+* 对象 `log` 上只有具体这一个对象的**成员变量值和成员函数**，例如 `log.SetLevel(...)`，并不会“挂着”一个叫 `LogLevelWarning` 的字段，所以 `log.LogLevelWarning` 是不合法的。
+
+可以类比：
+
+* `std::cout` 中的 `std::` 是命名空间作用域；
+* `Log::LogLevelWarning` 中的 `Log::` 是类作用域；
+* 而 `log` 只是一个对象实例，用来调用成员函数（`log.SetLevel(...)`），而不是用来访问枚举定义。
+
+

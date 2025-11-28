@@ -1,5 +1,5 @@
 CMakeFiles/Project1.dir/src/Log.cpp.obj: \
- D:\Develop\CPP_Project\src\Log.cpp \
+ D:\Develop\CPP_Project\src\Log.cpp D:/Develop/CPP_Project/include/Log.h \
  D:/Program\ Files\ (x86)/MinGW/msys64/ucrt64/include/c++/15.2.0/iostream \
  D:/Program\ Files\ (x86)/MinGW/msys64/ucrt64/include/c++/15.2.0/bits/requires_hosted.h \
  D:/Program\ Files\ (x86)/MinGW/msys64/ucrt64/include/c++/15.2.0/x86_64-w64-mingw32/bits/c++config.h \
