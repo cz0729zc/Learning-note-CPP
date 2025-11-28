@@ -8,7 +8,7 @@
 
 引用本质上是给变量取了一个别名。通常情况下，能用引用完成的任务，使用指针也能完成，但引用更安全、更易读。
 
-### 代码示例
+### 代码示例：类级 static
 
 ```cpp
 #include <iostream>
@@ -102,7 +102,7 @@ public: // 需要显式声明 public 才能达到与 struct 相同的效果
 
 在学习 `Log` 日志类时，有一个容易混淆的问题：为什么在 `main.cpp` 中要写 `Log::LogLevelWarning`，而不能写成 `log.LogLevelWarning`？
 
-### 思考过程小结
+### 思考过程小结：
 
 ```cpp
 class Log {
@@ -132,5 +132,54 @@ int main() {
 * `std::cout` 中的 `std::` 是命名空间作用域；
 * `Log::LogLevelWarning` 中的 `Log::` 是类作用域；
 * 而 `log` 只是一个对象实例，用来调用成员函数（`log.SetLevel(...)`），而不是用来访问枚举定义。
+
+---
+
+## 静态成员与对象实例 (Static Members)
+
+在学习 `Entity` 时，遇到两个典型问题：
+
+1. 类中成员变量/函数加上 `static` 会发生什么？
+2. 为什么只在类里写 `static int x, y;` 会出现 `undefined reference to Entity::x`？
+
+### 代码示例
+
+```cpp
+class Entity
+{
+public:
+    static int x, y;      // 静态成员变量：属于类本身，而不是某个对象
+
+    static void Print()   // 静态成员函数：不需要 this 指针
+    {
+        std::cout << x << ", " << y << std::endl;
+    }
+};
+
+// 类外必须提供一次定义，否则会链接错误（undefined reference）
+int Entity::x;
+int Entity::y;
+
+int main()
+{
+    Entity e;
+    Entity::x = 5;
+    Entity::y = 8;
+    Entity::Print(); // 输出 5, 8
+
+    Entity e1;
+    Entity::x = 10;
+    Entity::y = 20;
+    Entity::Print(); // 输出 10, 20（e 和 e1 看到的是同一份 x, y）
+}
+```
+
+### 思考过程小结
+
+* `static int x, y;` 在类内只是**声明**，不会分配内存；真正的定义需要在类外写 `int Entity::x; int Entity::y;`。
+* 静态成员变量是“类级别”的，全局共享一份，所有对象（`e`、`e1`）看到的是同一个 `x`、`y`。
+* 静态成员函数没有 `this` 指针，只能访问静态成员（如 `x`、`y`），不能直接访问非静态成员；如果把 `x, y` 改成非静态，而 `Print` 还保持 `static`，会编译报错。
+* 如果希望每个对象有自己的坐标，而不是共享一份，就应该去掉 `static`，把 `Print` 也改成普通成员函数，然后通过对象访问：`e.x = 5; e.y = 8; e.Print();`。
+
 
 
