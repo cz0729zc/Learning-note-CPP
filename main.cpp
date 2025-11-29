@@ -1,42 +1,51 @@
 #include <iostream>
-#include "Log.h"
+// #include "Log.h"
 
 class Entity
 {
 public:
-    static int x, y;
+    float X, Y;
 
-    static void Print()
+    Entity()
     {
-        std::cout << x << ", " << y << std::endl;
+        X = 0.0f;
+        Y = 0.0f;
+        std::cout << "Create Entity" << std::endl;
+    }
+
+    Entity(float x, float y)
+    {
+        X = x;
+        Y = y;
+    }
+
+    ~Entity()
+    {
+        std::cout << "Destroy Entity" << std::endl;
+    }
+
+    void Print()
+    {
+        std::cout << "X: " << X << ", Y: " << Y << std::endl;
     }
 };
 
-int Entity::x;
-int Entity::y;
+void Function()
+{
+    Entity e;
+    e.Print();
+}
 
 int main(int, char**)
 {
-    // Log log;
-    // log.SetLevel(Log::LogLevelError);
-    // log.warn("This is a warning message.");
-    // log.info("This is an info message.");
-    // log.error("This is an error message.");
+    // Entity e;
+    // e.Print(); // Uninitialized values
 
-    Entity e;
-    // e.x = 5;
-    // e.y = 8;
-    Entity::x = 5;
-    Entity::y = 8;
-    Entity::Print();
+    // Entity e2(5.0f, 10.0f);
+    // e2.Print(); // Initialized values
 
-    Entity e1;
-    // e1.x = 10;
-    // e1.y = 20;
-    Entity::x = 10;
-    Entity::y = 20;
+    Function();
 
-    Entity::Print();
     return 0;
 }
                                                                                                                     

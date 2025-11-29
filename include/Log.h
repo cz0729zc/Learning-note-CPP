@@ -16,5 +16,5 @@ public:
     void error(const char* message);
 
 private:
-    LogLevel level;
+    LogLevel level = LogLevelInfo;
 };
