@@ -313,7 +313,7 @@ int Logger::s_LogLevel = 0;
 * **构造函数 (Constructor)**：对象被创建时自动调用，用来初始化成员、申请资源。
 * **析构函数 (Destructor)**：对象生命周期结束、被销毁时自动调用，用来清理和释放资源。
 
-### 代码示例
+### 代码示例：继承与对象大小
 
 ```cpp
 class Entity
@@ -392,6 +392,90 @@ int main()
 >
 > * 构造/析构函数由编译器在恰当的时机自动调用，不需要（也不能）手动像普通函数那样随便调用。
 > * 普通成员函数可以随时被调用多次，而构造函数只在“创建时”调用一次，析构函数只在“销毁时”调用一次。
+
+---
+
+## 类的继承 (Inheritance)
+
+这一部分用 `Entity` / `Player` 的例子，理解几件事：
+
+1. `class Player : public Entity` 里的 `public` 是在控制**继承后的可见性**，不是“只继承 public 成员”。
+2. 派生类对象内存布局中，**始终包含一个完整的基类子对象**。
+3. 成员的对齐（alignment）和补齐（padding）会影响 `sizeof` 的结果。
+
+### 代码示例
+
+```cpp
+class Entity
+{
+private:
+    int ID;      // 私有成员，仍然占据对象内存，但派生类代码不能直接访问
+
+public:
+    float X, Y;
+
+    void Move(float xa, float ya)
+    {
+        X += xa;
+        Y += ya;
+    }
+};
+
+class Player : public Entity   // public 继承：Player 是一种 Entity
+{
+public:
+    const char* Name;          // 新增成员：名字指针
+
+    void PrintName()
+    {
+        std::cout << Name << std::endl;
+    }
+};
+
+int main()
+{
+    std::cout << sizeof(Entity) << std::endl;
+    std::cout << sizeof(Player) << std::endl;
+}
+```
+
+在 64 位环境下（`int` 4 字节，`float` 4 字节，指针 8 字节），可能看到类似输出：
+
+```text
+12
+24
+```
+
+### 思考过程小结
+
+> [!IMPORTANT]
+> **public 继承的含义**
+>
+> * `public` 并不是“只继承 public 成员”，而是控制“继承后 public/protected 成员在派生类中的可见性”。
+> * `class Player : public Entity`：
+>   * `Entity` 的 `public` 成员，在 `Player` 中仍然是 `public`；
+>   * `Entity` 的 `protected` 成员，在 `Player` 中仍然是 `protected`；
+>   * `Entity` 的 `private` 成员仍然存在于对象内存里，但只能通过 `Entity` 自己（或友元）访问，`Player` 的成员函数不能直接访问。
+> * `public` 继承表达的是“is-a” 关系：`Player` 是一种 `Entity`，可以在需要 `Entity` 的地方使用 `Player`。
+
+> [!IMPORTANT]
+> **对象内存布局与对齐**
+>
+> * 派生类对象中，包含一个完整的基类子对象，再加上派生类自己的成员。
+> * `Entity`：`int ID` (4) + `float X` (4) + `float Y` (4) → 逻辑大小 12 字节。
+> * `Player`：
+>   * 先放一个 `Entity` 子对象（12 字节，会为了后续成员对齐补齐到 16 **8的倍数**）。
+>   * 再放一个 8 字节的指针 `Name`。
+>   * 所以总大小通常是 16 + 8 = 24，而不是“12 + 8 = 20”。
+> * `sizeof` 统计的是“数据成员 + 对齐填充”，不包含成员函数代码、static 成员等。
+
+> [!TIP]
+> **如何直观理解 sizeof 的变化**
+>
+> * 先按顺序写出所有成员的大小，再考虑对齐要求（通常是最大成员类型的对齐，比如指针 8 字节）。
+> * 基类作为子对象嵌入派生类时，也要按照派生类的对齐需求进行补齐，这会让“只多了 4 字节”在派生类中表现为多出 8 甚至更多。
+> * 可以用 `static_assert(sizeof(...))` 或打印 `sizeof` 的方式，配合图示帮助自己建立“对象布局”的直觉。
+
 
 
 

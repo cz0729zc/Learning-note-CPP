@@ -3,48 +3,33 @@
 
 class Entity
 {
+private:
+    int ID, ID2;
 public:
     float X, Y;
 
-    Entity()
+    void Move(float xa, float ya)
     {
-        X = 0.0f;
-        Y = 0.0f;
-        std::cout << "Create Entity" << std::endl;
-    }
-
-    Entity(float x, float y)
-    {
-        X = x;
-        Y = y;
-    }
-
-    ~Entity()
-    {
-        std::cout << "Destroy Entity" << std::endl;
-    }
-
-    void Print()
-    {
-        std::cout << "X: " << X << ", Y: " << Y << std::endl;
+        X += xa;
+        Y += ya;
     }
 };
 
-void Function()
+class Player : public Entity
 {
-    Entity e;
-    e.Print();
-}
+public:
+    const char* Name;
 
-int main(int, char**)
+    void PrintName()
+    {
+        std::cout << Name << std::endl;
+    }
+};
+
+int main()
 {
-    // Entity e;
-    // e.Print(); // Uninitialized values
-
-    // Entity e2(5.0f, 10.0f);
-    // e2.Print(); // Initialized values
-
-    Function();
+    std::cout << sizeof(Entity) << std::endl;
+    std::cout << sizeof(Player) << std::endl;
 
     return 0;
 }
