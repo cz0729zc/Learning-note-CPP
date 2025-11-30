@@ -1,11 +1,17 @@
 #include <iostream>
 // #include "Log.h"
 
-class Entity
+class Printable
 {
 public:
-    std::string GetName() { return "Entity"; }
-// virtual std::string GetName() { return "Entity"; }
+    virtual std::string GetClassName() = 0;  
+};
+
+class Entity : public Printable
+{
+public:
+    virtual std::string GetName() { return "Entity"; }
+    std::string GetClassName() override { return "Entity"; } // 实现纯虚函数，否则 Entity 也是抽象类（不能 new）
 };
 
 class Player : public Entity
@@ -18,21 +24,23 @@ public:
     {
 
     }
-    std::string GetName() { return m_Name; }
     // std::string GetName() override { return m_Name; }
+    std::string GetClassName() override { return "Player"; } 
 };
+
+void Print (Printable* e)
+{   
+    std::cout << e->GetClassName() << std::endl;
+}
 
 int main()
 {
     Entity* e = new Entity();
-    std::cout << e->GetName() << std::endl;
-
+    Print(e);
     Player* p = new Player("Bob");
-    std::cout << p->GetName() << std::endl;
-
-    Entity* e2 = p;
-    std::cout << e2->GetName() << std::endl;
-
+    Print(p);
+    // Entity* e2 = p;
+    // Print(e2);
     return 0;
 }
                                                                                                                     

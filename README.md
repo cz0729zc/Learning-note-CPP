@@ -486,6 +486,8 @@ int main()
 2. 虚函数调用是**动态绑定**：看的是指针/引用实际指向对象的「真实类型」。
 3. 多态的典型写法是：用基类指针/引用指向派生类对象，通过虚函数实现“同一接口，不同行为”。
 
+在此基础上，引入**纯虚函数 (pure virtual)** 和 **抽象类 (abstract class)** 的概念，可以定义一组“必须由子类实现的接口”。
+
 ### 代码示例：非虚函数 vs 虚函数
 
 ```cpp
@@ -546,6 +548,70 @@ int main()
 > * 有一个统一的“基类接口”（如 `GetName()` / `Update()` / `Draw()`），而具体行为由不同子类实现时，就应该在基类上声明为 `virtual`。
 > * 通过基类指针/引用（如 `Entity*` 或 `Entity&`）操作一组不同子类对象时，虚函数可以让调用端“不关心具体类型”，只关心接口。
 > * 多态基类通常还要提供一个 `virtual` 析构函数，保证通过基类指针 `delete` 派生类对象时析构链完整执行。
+
+### 纯虚函数与抽象类
+
+```cpp
+#include <iostream>
+// #include "Log.h"
+
+class Printable
+{
+public:
+    virtual std::string GetClassName() = 0;  
+};
+
+class Entity : public Printable
+{
+public:
+    virtual std::string GetName() { return "Entity"; }
+    std::string GetClassName() override { return "Entity"; } // 实现纯虚函数，否则 Entity 也是抽象类（不能 new）
+};
+
+class Player : public Entity
+{
+private:
+    std::string m_Name;
+public:
+    Player(const std::string& name)
+        : m_Name(name)
+    {
+
+    }
+    // std::string GetName() override { return m_Name; }
+    std::string GetClassName() override { return "Player"; } 
+};
+
+void Print (Printable* e)
+{   
+    std::cout << e->GetClassName() << std::endl;
+}
+
+int main()
+{
+    Entity* e = new Entity();
+    Print(e);
+    Player* p = new Player("Bob");
+    Print(p);
+    // Entity* e2 = p;
+    // Print(e2);
+    return 0;
+}
+```
+
+> [!IMPORTANT]
+> **纯虚函数和抽象类的关系**
+>
+> * 含有至少一个纯虚函数（`= 0`）的类称为“抽象类 (abstract class)，不能直接实例化：`Printable p;` / `new Printable()` 都是非法的。
+> * 抽象类通常用作“接口类”：只定义函数签名（接口），具体实现交给子类完成。
+> * 如果派生类（如 `Entity`）没有实现所有继承来的纯虚函数，那么它本身也会是抽象类，同样无法被实例化。
+
+> [!TIP]
+> **多态 + 接口的常见组合**
+>
+> * 用一个抽象基类（如 `Printable`）声明一组纯虚函数，定义“这个家族的通用能力”。
+> * 各个子类（`Entity` / `Player` / 其他）实现这些纯虚函数，提供各自的行为。
+> * 对外只暴露一个接受基类指针/引用的接口（如 `void Print(Printable* p)`），调用端完全不需要关心传进来的是哪个具体子类，只关心可以调用哪些虚函数。
 
 
 
