@@ -1,6 +1,6 @@
 # CPP 学习随笔
 
-**学习资源**：[Cherno C++ 系列](https://www.bilibili.com/video/BV1VJ411M7WR?spm_id_from=333.788.player.switch&vd_source=c899b188b620426fe3181bd45fd4e21b&p=19)
+**学习资源**：[Cherno C++ 系列](https://www.bilibili.com/video/BV1VJ411M7WR?spm_id_from=333.788.player.switch&vd_source=c899b188b620426fe3181bd45fd4e21b&p=1)
 
 ---
 
@@ -46,7 +46,7 @@ int main(int, char**) {
 }
 ```
 
-### 核心区别
+### 核心区别：class vs struct
 
    > [!IMPORTANT]
    > **必须初始化**
@@ -102,7 +102,7 @@ public: // 需要显式声明 public 才能达到与 struct 相同的效果
 
 在学习 `Log` 日志类时，有一个容易混淆的问题：为什么在 `main.cpp` 中要写 `Log::LogLevelWarning`，而不能写成 `log.LogLevelWarning`？
 
-### 思考过程小结：
+### 思考过程小结：枚举与类作用域
 
 ```cpp
 class Log {
@@ -446,7 +446,7 @@ int main()
 24
 ```
 
-### 思考过程小结
+### 思考过程小结：虚函数与绑定方式
 
 > [!IMPORTANT]
 > **public 继承的含义**
@@ -464,7 +464,7 @@ int main()
 > * 派生类对象中，包含一个完整的基类子对象，再加上派生类自己的成员。
 > * `Entity`：`int ID` (4) + `float X` (4) + `float Y` (4) → 逻辑大小 12 字节。
 > * `Player`：
->   * 先放一个 `Entity` 子对象（12 字节，会为了后续成员对齐补齐到 16 **8的倍数**）。
+>   * 先放一个 `Entity` 子对象（12 字节，会为了后续成员对齐补齐到 16 `8的倍数`）。
 >   * 再放一个 8 字节的指针 `Name`。
 >   * 所以总大小通常是 16 + 8 = 24，而不是“12 + 8 = 20”。
 > * `sizeof` 统计的是“数据成员 + 对齐填充”，不包含成员函数代码、static 成员等。
@@ -475,6 +475,77 @@ int main()
 > * 先按顺序写出所有成员的大小，再考虑对齐要求（通常是最大成员类型的对齐，比如指针 8 字节）。
 > * 基类作为子对象嵌入派生类时，也要按照派生类的对齐需求进行补齐，这会让“只多了 4 字节”在派生类中表现为多出 8 甚至更多。
 > * 可以用 `static_assert(sizeof(...))` 或打印 `sizeof` 的方式，配合图示帮助自己建立“对象布局”的直觉。
+
+---
+
+## 虚函数与多态 (Virtual Functions & Polymorphism)
+
+这一部分用 `Entity` / `Player` 的例子理解：
+
+1. 非虚函数调用是**静态绑定**：看的是指针/引用的「类型」。
+2. 虚函数调用是**动态绑定**：看的是指针/引用实际指向对象的「真实类型」。
+3. 多态的典型写法是：用基类指针/引用指向派生类对象，通过虚函数实现“同一接口，不同行为”。
+
+### 代码示例：非虚函数 vs 虚函数
+
+```cpp
+#include <iostream>
+// #include "Log.h"
+
+class Entity
+{
+public:
+    // std::string GetName() { return "Entity"; }
+    virtual std::string GetName() { return "Entity"; }
+};
+
+class Player : public Entity
+{
+private:
+    std::string m_Name;
+public:
+    Player(const std::string& name)
+        : m_Name(name)
+    {
+
+    }
+    // std::string GetName() { return m_Name; }
+    std::string GetName() override { return m_Name; }
+};
+
+int main()
+{
+    Entity* e = new Entity();
+    std::cout << e->GetName() << std::endl;
+
+    Player* p = new Player("Bob");
+    std::cout << p->GetName() << std::endl;
+
+    Entity* e2 = p;
+    std::cout << e2->GetName() << std::endl;
+
+    return 0;
+}                
+```
+
+### 思考过程小结
+
+> [!IMPORTANT]
+> **静态绑定 vs 动态绑定**
+>
+> * 非虚函数调用（没有 `virtual`）：
+>   * 编译期就根据“指针/引用的类型”决定调用哪个版本，称为**静态绑定**。
+>   * `Entity* e = &p; e->GetName();` 会调用 `Entity::GetName`，即使 `e` 实际指向的是 `Player` 对象。
+> * 虚函数调用（带 `virtual`）：
+>   * 运行时根据“指针/引用实际指向的对象类型”来决定调用哪个版本，称为**动态绑定**或多态。
+>   * `Entity2* e = &p; e->GetName();` 会调用 `Player2::GetName`，因为底层真实对象是 `Player2`。
+
+> [!TIP]
+> **何时使用虚函数**
+>
+> * 有一个统一的“基类接口”（如 `GetName()` / `Update()` / `Draw()`），而具体行为由不同子类实现时，就应该在基类上声明为 `virtual`。
+> * 通过基类指针/引用（如 `Entity*` 或 `Entity&`）操作一组不同子类对象时，虚函数可以让调用端“不关心具体类型”，只关心接口。
+> * 多态基类通常还要提供一个 `virtual` 析构函数，保证通过基类指针 `delete` 派生类对象时析构链完整执行。
 
 
 
