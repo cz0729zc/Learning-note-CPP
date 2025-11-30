@@ -98,6 +98,134 @@ public: // 需要显式声明 public 才能达到与 struct 相同的效果
 
 ---
 
+## 数组基础 (Arrays Basics)
+
+这一部分结合教程第 31p 和 `main.cpp` 的示例，总结 C++ 中两种常见的“定长数组”形式：
+
+1. **原生数组**（也叫 C 风格数组，C-style array）；
+2. **`std::array`（Standard Array）**：标准库提供的定长数组封装类模板（Class Template）。
+
+### 1. 原生数组（C 风格数组）
+
+```cpp
+#include <iostream>
+
+void DemoRawArray()
+{
+    // 在栈上创建一个大小为 5 的 int 数组，大小在编译期固定
+    int raw[5] = { 1, 2, 3, 4, 5 };
+
+    std::cout << "[Raw array]" << std::endl;
+
+    // 使用下标访问元素（不会做边界检查）
+    for (int i = 0; i < 5; ++i)
+    {
+        std::cout << "raw[" << i << "] = " << raw[i] << std::endl;
+    }
+
+    // 数组名在大多数表达式中会“衰减”(decay) 为指向首元素的指针
+    int* p = raw;
+    std::cout << "first element via pointer: " << *p << std::endl;
+}
+```
+
+> [!IMPORTANT]
+> **原生数组的几个特点**
+>
+> * 大小在编译期固定，不能在运行时动态改变大小（`int raw[n]` 中的 `n` 必须是编译器能确定的常量，标准 C++ 下如此）。
+> * 名字在大多数表达式中会衰减(decay) 为 `T*` 指针，这也是很多 C 风格函数参数写 `int*` 的原因。
+> * 使用 `raw[i]` 不会做越界检查，`i` 写错了编译器也不会提示，运行时可能导致未定义行为(Undefined Behavior)。
+
+原生数组适合简单、底层、对性能和内存布局有较强要求的场景，但安全性不高，需要自己非常小心边界管理。
+
+### 2. `std::array`：更安全的定长数组封装
+
+`std::array`（Standard Array）是 C++ 标准库提供的一个模板类，用来封装“**固定大小、在栈上分配**”的数组：
+
+```cpp
+#include <iostream>
+#include <array>
+
+void DemoStdArray()
+{
+    // 模板参数：元素类型 + 大小
+    std::array<int, 5> arr1{};                  // 列表初始化为 0
+    std::array<int, 5> arr2 = { 1, 2, 3, 4, 5 };
+
+    std::cout << "[std::array basic]" << std::endl;
+
+    // fill: 填充整个数组
+    arr1.fill(4);
+
+    // at: 带边界检查的访问（运行期检查，下标越界会抛异常）
+    std::cout << "arr2.at(4) = " << arr2.at(4) << std::endl;
+
+    // front / back: 第一个 / 最后一个元素
+    std::cout << "front = " << arr2.front() << std::endl;
+    std::cout << "back  = " << arr2.back()  << std::endl;
+
+    // data: 返回底层原生数组的指针，可以与 C 风格 API 交互
+    std::cout << "data pointer = " << arr2.data() << std::endl;
+
+    // size / empty
+    std::cout << "size  = " << arr2.size()  << std::endl;
+    std::cout << "empty = " << std::boolalpha << arr2.empty() << std::endl;
+
+    std::cout << "\n[std::array iterate]" << std::endl;
+
+    // 迭代器类型是 std::array<int,5>::iterator，不是 int*
+    for (auto it = arr2.begin(); it != arr2.end(); ++it)
+    {
+        std::cout << *it << " ";
+    }
+    std::cout << std::endl;
+
+    std::cout << "\n[std::array compare]" << std::endl;
+
+    // 比较运算符：按元素逐个比较（词典序，lexicographical order）
+    std::cout << "arr1 == arr2 : " << (arr1 == arr2) << std::endl;
+    std::cout << "arr1 != arr2 : " << (arr1 != arr2) << std::endl;
+    std::cout << "arr1 <  arr2 : " << (arr1 <  arr2) << std::endl;
+    std::cout << "arr1 <= arr2 : " << (arr1 <= arr2) << std::endl;
+
+    std::cout << "\n[std::array swap]" << std::endl;
+
+    // swap: 交换两个数组（大小和类型必须相同）
+    arr1.swap(arr2);
+
+    std::cout << "arr1 after swap: ";
+    for (auto v : arr1)
+        std::cout << v << ' ';
+    std::cout << std::endl;
+
+    std::cout << "arr2 after swap: ";
+    for (auto v : arr2)
+        std::cout << v << ' ';
+    std::cout << std::endl;
+}
+```
+
+> [!TIP]
+> **相对于原生数组，`std::array` 提供的额外能力**
+>
+> * 成员函数：`size()` / `empty()` / `fill()` / `front()` / `back()` / `data()` 等；
+> * 安全访问：`at(index)` 会做运行期边界检查，越界时抛出异常而不是静默地产生未定义行为；
+> * 迭代器(Iterator)：可以用 `begin()` / `end()` 配合 `for` 循环和标准算法(`std::sort` / `std::find` 等)；
+> * 支持比较运算符：按元素做词典序(lexicographical order) 比较，适合排序或放在关联容器里。
+
+### 3. 什么时候用原生数组，什么时候用 `std::array`？
+
+> [!IMPORTANT]
+> **简单经验**
+>
+> * 需要固定大小的栈数组，并且这个数组会在多个函数之间传递、操作：优先用 `std::array`；
+> * 只是在局部函数里暂时用一下，而且非常简单（比如 `int a[3] = {1,2,3};`）：用原生数组也没问题；
+> * 需要和 C 接口交互时：可以用 `std::array` + `.data()` 拿到底层指针，两边都能兼顾。
+
+从学习角度，原生数组可以帮助你理解指针、内存布局这些底层概念，而在真实项目中，`std::array`（和后面会学到的 `std::vector`，Standard Vector）会更常用，更安全也更好组合到泛型算法里。
+
+---
+
 ## 类作用域与枚举访问 (Log::LogLevelWarning)
 
 在学习 `Log` 日志类时，有一个容易混淆的问题：为什么在 `main.cpp` 中要写 `Log::LogLevelWarning`，而不能写成 `log.LogLevelWarning`？
