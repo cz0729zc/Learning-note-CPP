@@ -226,6 +226,170 @@ void DemoStdArray()
 
 ---
 
+## const 关键字与只读语义 (const Keyword & Read-Only Semantics)
+
+这一部分结合教程第 34p 和 `main.cpp` 中的代码，总结 C++ 里 `const` 关键字的几个典型用法：
+
+1. 修饰变量：只读变量（有时也叫常量）；
+2. 修饰指针：**“指向常量的指针 (pointer to const)”** 和 **“指针常量 (const pointer)”** 以及两者结合；
+3. 修饰成员函数：**常量成员函数 (const member function)**；
+4. 特殊关键字 `mutable`（Mutable Keyword）：在 `const` 成员函数里可以被修改的成员。
+
+### 1. const 变量：只读但不一定是真正“常量表达式”
+
+```cpp
+int main()
+{
+    const int MAX_AGE = 90;   // 只读变量：之后不能再通过 MAX_AGE 修改这个值
+
+    // MAX_AGE = 100;        // ❌ 错误：不能给 const 变量重新赋值
+}
+```
+
+> [!IMPORTANT]
+> **const 变量的含义**
+>
+> * 对于变量来说，`const` 表示“**不能通过这个名字修改它**”。
+> * 如果初始化时使用的是编译期常量表达式（Constant Expression），有些情况下编译器会把它当成真正的常量用于优化（比如数组大小等）。
+
+### 2. const 与指针：谁是常量，谁是指向的值？
+
+在教程示例和 `main.cpp` 中用的是这三种形式：
+
+```cpp
+// 1. 指向常量的指针（pointer to const）
+const int* a1 = new int;    // 不能通过 a1 修改指向的值，但可以改变 a1 指向哪儿
+
+// 2. 指针常量（const pointer）
+int* const a2 = new int;    // 可以通过 *a2 修改指向的值，但 a2 本身不能指向别处
+
+// 3. 指向常量的指针常量（const pointer to const）
+const int* const a3 = new int; // 既不能改指针指向，也不能通过它改指向的值
+```
+
+简单记忆：
+
+> [!TIP]
+> **看 const 靠近谁**
+>
+> * `const int*`：`int` 前面有 `const`，表示“指向 **const int** 的指针”，也叫“指向常量的指针 (pointer to const)”，不能改值；
+> * `int* const`：`const` 紧挨着 `*`，表示“**指针本身是 const**”，也叫“指针常量 (const pointer)”，不能改指针指向；
+> * `const int* const`：两者都 const，指向和指向的值都不能改。
+
+在你的 `main.cpp` 中：
+
+```cpp
+const int MAX_AGE = 90;
+
+// 指向常量的指针常量（const pointer to const）
+const int* const a = new int;
+
+// *a = 25;            // ❌ 严格来说不合法：a 指向 const int，不应该通过 a 修改值
+// a = (int*)&MAX_AGE; // ❌ 不合法：a 是 const 指针，不能改变指向
+```
+
+这段代码在严格的 C++ 语义下是有问题的：
+
+* `const int* const a` 表示“不能改 `*a`，也不能改 `a` 本身”；
+* 如果编译器没有报错，多半是因为例子还没完全写完，或者是故意留的“反例”。
+
+实践中，你可以用下面的更安全写法来表达“只读视图”：
+
+```cpp
+int* raw = new int(25);
+const int* view = raw;   // pointer to const：不能通过 view 改值，但 raw 仍然可以改
+```
+
+### 3. const 成员函数：承诺“不会修改对象状态”
+
+看 `main.cpp` 中的 `Entity`：
+
+```cpp
+class Entity
+{
+private:
+    int* m_X, m_Y;
+    mutable int var; // mutable（Mutable Keyword）允许在 const 成员函数中修改
+public:
+    // 返回一个指向常量的常量指针
+    const int* const GetX() const
+    {
+        // m_X = 5;    // ❌ 错误：不能在 const 成员函数中修改非 mutable 成员
+        var = 10;       // ✅ 允许：mutable 成员可以在 const 成员函数中被修改
+        return m_X;
+    }
+
+    void SetX(int x)
+    {
+        *m_X = x;
+    }
+};
+
+void PrintEntity(const Entity& e)
+{
+    // const Entity& 只能调用 const 成员函数
+    std::cout << *(e.GetX()) << std::endl;
+}
+```
+
+这里有三个层次的 `const`：
+
+1. `const int* const GetX()`：说明返回值类型是“指向 const int 的 const 指针”，调用者不能通过返回值改指向或改值；
+2. 函数末尾的 `... GetX() const`：这是 **常量成员函数 (const member function)**，表示：
+   * 在函数体内不能修改非 `mutable` 成员；
+   * 只能调用同样是 `const` 的其他成员函数；
+3. 形参 `const Entity& e`：常量引用（const reference），表示 `PrintEntity` 不会（也不能）修改传进来的 `Entity` 对象。
+
+> [!IMPORTANT]
+> **为什么要用 const 成员函数？**
+>
+> * 从语义上区分“只读操作”和“修改操作”，读代码的人一眼就能看出哪些函数是安全的“观察者 (observer)”；
+> * 允许你把对象以 `const Entity&` 的形式传给函数或存入只读容器里，同时仍然可以调用这些“只读接口”；
+> * 编译器会帮你检查：你承诺 `const` 的函数里，真的没有去改成员（除了标记为 `mutable` 的）。
+
+### 4. mutable：在 const 成员函数里仍然可变
+
+关键字 `mutable`（Mutable Keyword）用在成员变量上，表示“即使对象是 `const` 的、或者在 `const` 成员函数中，这个成员仍然允许被修改”，典型用法有：
+
+* 缓存字段（比如缓存上一次计算结果）；
+* 调试计数器、日志次数等“不影响对象逻辑状态”的统计信息。
+
+在上面的 `Entity` 中：
+
+```cpp
+mutable int var;   // 这个成员即使在 const 函数中也可以改
+
+const int* const GetX() const
+{
+    // m_X = 5;    // ❌ 不允许：m_X 不是 mutable
+    var = 10;       // ✅ 允许：var 是 mutable
+    return m_X;
+}
+```
+
+> [!NOTE]
+> **mutable 的使用建议**
+>
+> * `mutable`（Mutable Keyword）是为了那些“不改变对象逻辑状态，但需要在 const 上做点事”的场景准备的；
+> * 不要滥用：如果经常需要在 const 上“偷偷修改状态”，通常说明接口设计可以再想想（例如把那些状态抽出去）。
+
+---
+
+### 小结：用 const 表达“承诺”和“约束”
+
+> [!IMPORTANT]
+> 从风格和设计角度看，可以把 `const` 理解为一种“写在类型系统里的承诺”：
+>
+> * `const int` / `const Foo`：承诺“不会通过这个名字去改这块数据”；
+> * `const int*` / `Foo* const` / `const int* const`：进一步控制“是不能改指向？还是不能改值？还是都不能改”；
+> * `const T&`：告诉调用者“这个函数只读不改，可以放心把自己的对象借给我”；
+> * `ReturnType GetXXX() const`：声明“这是一个只读接口”，既方便 `const` 对象使用，也方便编译器帮你检查误修改；
+> * `mutable`（Mutable Keyword）：在极少数需要时，允许你在 `const` 环境里修改一些“不算真正状态”的成员。
+
+掌握这些模式之后，`const` 不再只是“不能改的东西”，而是一个帮助你**区分读写、表达设计意图、提升安全性**的小工具。
+
+---
+
 ## 类作用域与枚举访问 (Log::LogLevelWarning)
 
 在学习 `Log` 日志类时，有一个容易混淆的问题：为什么在 `main.cpp` 中要写 `Log::LogLevelWarning`，而不能写成 `log.LogLevelWarning`？
