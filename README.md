@@ -687,6 +687,186 @@ int main()
 
 ---
 
+## 成员初始化列表 (Member Initializer List)
+
+这一部分结合教程第 36p 和 `main.cpp` 的示例，总结 C++ 中**成员初始化列表**（Member Initializer List）的用法与好处：
+
+1. 避免“先默认构造，再赋值”的**双重构造**；
+2. 某些成员 **必须** 在初始化列表里初始化（如引用、`const` 成员）；
+3. 初始化顺序并不是“你写的顺序”，而是按**成员声明顺序**进行。
+
+### 1. 先看一个“构造两次”的例子
+
+你的 `main.cpp` 中有这样一个类：
+
+```cpp
+// Example 类用于演示成员变量的初始化顺序
+class Example
+{
+public:
+    Example()
+    {
+        std::cout << "Created Example" << std::endl;
+    }
+
+    Example(int x)
+    {
+        std::cout << "Created Example with value: " << x << std::endl;
+    }
+};
+
+class Entity
+{
+private:
+    std::string m_Name;  // 第一次：用 std::string 的默认构造
+    int m_Age;
+    Example m_Example;   // 第一次：调用 Example()，打印 "Created Example"
+
+public:
+    Entity()
+        : m_Name("Unknown"), m_Age(0), m_Example(10) // 初始化列表
+    {
+        // m_Name = "Unknown";               // ⚠️ 这里再赋值会触发第二次操作
+        m_Example = Example(10);             // 第二次：先默认构造，再拷贝赋值
+    }
+};
+```
+
+关键点：
+
+* 成员对象在进入构造函数体 **之前** 就已经被构造好了：
+  * `m_Name` 先通过默认构造构造一次；
+  * `m_Example` 先调用 `Example()` 打印一次；
+* 在构造函数体内再写 `m_Name = "Unknown";` 或 `m_Example = Example(10);`，只是对已经构造好的对象做一次**赋值**，等于“多做了一遍工作”。
+
+> [!IMPORTANT]
+> **为什么要用成员初始化列表？**
+>
+> * 对于类类型成员（比如 `std::string`、`Example`），
+>   * 在初始化列表中写 `m_Example(10)`：**直接调用带参构造函数，一次到位**；
+>   * 在构造函数体内再写 `m_Example = Example(10);`：
+>     1. 先默认构造一次（无参构造）；
+>     2. 再用赋值运算把新值拷过去；
+>   * 这就产生了不必要的额外构造/拷贝，效率更差。
+
+### 2. 正确用法：在初始化列表中完成初始化
+
+把上面的 `Entity` 稍微改一下，就可以只构造一次：
+
+```cpp
+class Entity
+{
+private:
+    std::string m_Name;
+    int m_Age;
+    Example m_Example;
+
+public:
+    Entity()
+        : m_Name("Unknown"),   // 直接调用 std::string(const char*) 构造
+          m_Age(0),             // 内置类型也可以在这里初始化
+          m_Example(10)         // 直接调用 Example(int) 构造，只构造一次
+    {
+        // 构造函数体内部可以做一些逻辑，但尽量避免再给成员“重新赋初始值”
+    }
+
+    Entity(const std::string& name)
+        : m_Name(name),         // 推荐：在初始化列表中就设好名字
+          m_Age(0),
+          m_Example(0)
+    {
+        // m_Name = name;      // 不推荐：又一次赋值，多一次开销
+    }
+};
+```
+
+> [!TIP]
+> **一个简单经验**
+>
+> * “谁应该在对象一出生就有确定值”，就尽量放到**初始化列表**里；
+> * 构造函数体内部，更适合做流程逻辑、打印日志，而不是“给所有成员再来一遍初始赋值”。
+
+### 3. 有些东西只能在初始化列表里初始化
+
+有几类成员是**不能靠赋值完成初始化**的，它们 **必须** 写在成员初始化列表里：
+
+1. **引用成员**（reference）：引用一旦绑定就不能再指向别的对象；
+2. **`const` 成员**：`const` 一旦初始化就不能再赋值；
+3. 没有默认构造函数的成员对象：必须显式调用某个构造函数。
+
+示例：
+
+```cpp
+class Person
+{
+private:
+    const int m_Id;          // const 成员
+    std::string& m_Alias;    // 引用成员
+
+public:
+    Person(int id, std::string& alias)
+        : m_Id(id),          // ✅ 必须在这里初始化
+          m_Alias(alias)     // ✅ 引用也必须在这里绑定
+    {
+        // m_Id = 10;        // ❌ 错误：const 成员不能在函数体里重新赋值
+        // m_Alias = alias;  // ❌ 这里是给引用指向的对象赋值，不是“重新绑定”
+    }
+};
+```
+
+如果不在初始化列表中给它们赋值，编译器就会直接报错，提示你“没有合适的默认构造函数”或“未初始化的 const 成员”等问题。
+
+### 4. 初始化顺序：看声明顺序，不看你写的顺序
+
+一个非常容易踩坑的点：**成员的真正初始化顺序，与初始化列表中写的排列顺序无关，取决于成员在类中声明的先后顺序。**
+
+```cpp
+class Foo
+{
+private:
+    Example m_First;
+    Example m_Second;
+
+public:
+    Foo()
+        : m_Second(2),  // 虽然这里写在前面
+          m_First(1)    // 但实际初始化顺序仍然是：先 m_First，再 m_Second
+    {
+    }
+};
+```
+
+编译器会按照：
+
+1. `m_First`；
+2. `m_Second`；
+
+这个声明顺序进行初始化。上面这个写法虽然能编译，但可能会收到编译器警告（warning），提醒你“初始化顺序与声明顺序不一致”。
+
+> [!IMPORTANT]
+> **推荐写法**
+>
+> * 尽量让**初始化列表里的顺序和成员声明顺序一致**：
+>
+>   ```cpp
+>   class Foo
+>   {
+>   private:
+>       Example m_First;
+>       Example m_Second;
+>
+>   public:
+>       Foo()
+>           : m_First(1),
+>             m_Second(2)
+>       {}
+>   };
+>   ```
+>
+> * 这样一眼就能看出实际的初始化顺序，也能避免因为成员之间有依赖关系时出现隐蔽的 Bug。
+
+---
+
 ## 类的继承 (Inheritance)
 
 这一部分用 `Entity` / `Player` 的例子，理解几件事：

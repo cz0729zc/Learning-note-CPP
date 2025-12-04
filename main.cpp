@@ -1,48 +1,53 @@
 #include <iostream>
 #include <string>
 
-class Entity
+// Example类用于演示成员变量的初始化顺序
+class Example
 {
-private:
-    int* m_X, m_Y;
-    mutable int var; // mutable 允许在const成员函数中修改
 public:
-    //返回一个指向常量的常量指针,表示指针本身和指针所指向的值都不能被修改
-    const int* const GetX() const
+    Example()
     {
-        // m_X = 5; // Error: cannot modify member in const method
-        var = 10; // Allowed: mutable member can be modified
-        return m_X;
+        std::cout << "Creatd Entity" << std::endl;
     }
-
-    void SetX(int x)
+    Example(int x)
     {
-        *m_X = x;
+        std::cout << "Created Entity with value: " << x << std::endl;
     }
 };
 
-void PrintEntity(const Entity& e)
+class Entity
 {
-    //const Entity 可以使用const成员函数
-    std::cout << *(e.GetX()) << std::endl;
-}
+private:
+    std::string m_Name; //第一次默认构造
+    int m_Age;    
+    Example m_Example; //第一次默认构造 打印 Creatd Entity
+public:
+    Entity()
+        : m_Name("Unknown") , m_Age(0) , m_Example(10) //最好按照初始化列表顺序初始化成员变量,避免一些依赖问题   如果m_Example在此初始化只会构造一次
+    {
+        // m_Name = "Unknown"; //在函数类初始化会导致m_Name构造两次，效率低下
+        m_Example = Example(10); //第二次构造 打印 Created Entity with value: 10
+    }
+
+    Entity(const std::string& name)
+        : m_Name(name)
+    {
+        // m_Name = name;
+    }
+
+    const std::string& GetName() const
+    {
+        return m_Name;
+    }
+};
 
 int main()
 {
-    const int MAX_AGE = 90;
-    
-    //常量指针
-    // const int* a = new int; 
-    //指针常量
-    // int* const a = new int;
-    //指向常量的指针常量
-    const int* const a = new int;
+    Entity e0;
+    // std::cout << "Entity e0 name: " <<  e0.GetName() << std::endl;
 
-    *a = 25; // Example age
-    a = (int*)&MAX_AGE;
-
-    std::cout << "Age: " << *a << std::endl;
-
+    // Entity e1("zc");
+    // std::cout << "Entity e1 name: " <<  e1.GetName() << std::endl;
     return 0;
 }
                                                                                                                     
