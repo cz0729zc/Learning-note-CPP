@@ -1,82 +1,68 @@
 #include <iostream>
+#include <string>
 
-//建议写的时候把Add和运算符重载都写上,方便阅读和使用
-struct Vector2
+class Entity;
+
+void PrintEntity(const Entity& e);
+
+class Entity
 {
-    float x, y;
+public:
+    int x, y;
 
-    Vector2(float x, float y)
-        : x(x), y(y) {}
-
-    Vector2 Add(const Vector2& other) const
+    Entity(int x, int y)
     {
-        //函数调用运算符(不常见)
-        // return *this + other;
-        return Vector2(x + other.x, y + other.y);
+        // Entity* e = this;
+        // e->x = x;
+        // e->y = y;
+        
+        this->x = x;
+        this->y = y;
+
+        //在类中调用类外的函数并以类的当前对象作为参数传递，是使用this指针的一个常见场景
+        PrintEntity(*this);
     }
 
-    Vector2 operator+(const Vector2& other) const
+    int GetX() const
     {
-        //运算符调用函数(更常见,推荐)
-        return Add(other);
-        // return Vector2(x + other.x, y + other.y);
+        const Entity& e = *this;
+
+        return x;
     }
 
-    Vector2 Multiply(const Vector2& other) const
+    //链式调用
+    Entity& Add(const Entity& other)
     {
-        //函数调用运算符(不常见)
-        // return *this * other;
-        return Vector2(x * other.x, y * other.y);
+        x += other.x;
+        y += other.y;
+        return *this; // 返回当前对象的引用，支持链式调用
     }
 
-    Vector2 operator*(const Vector2& other) const
+    //失败案例
+    //链式调用
+    Entity Add2(const Entity other)
     {
-        //运算符调用函数(更常见,推荐)
-        return Multiply(other);
-        // return Vector2(x * other.x, y * other.y);
-    }
-
-    bool operator==(const Vector2& other) const
-    {
-        return x == other.x && y == other.y;
-    }
-
-    bool operator!=(const Vector2& other) const
-    {
-        return !(*this == other);
+        // x += other.x;
+        // y += other.y;
+        // return *this; // 返回当前对象的引用，支持链式调用
+        return Entity(x + other.x, y + other.y);
     }
 };
 
-//重载输出运算符,这里的stream参数是由cout传入的
-std::ostream& operator<<(std::ostream& stream, const Vector2& other)
+void PrintEntity(const Entity& e)
 {
-    stream << other.x << ", " << other.y;
-    return stream;
+
 }
 
-int main() 
+int main()
 {
-    Vector2 position(4.0f, 4.0f);
-    Vector2 speed(0.5f, 1.5f);
-    Vector2 powerup(1.1f, 1.1f);
+    Entity e1(1, 2);
+    Entity e2(3, 4);
+    e1.Add(e2).Add(e2); // 链式调用示例
+    Entity e3 = e2.Add2(e1).Add2(e1); // 链式调用示例
 
-    //在JAVA中这是唯一的选择，但在C++中我们可以使用运算符重载来让代码更简洁
-    Vector2 result1 = position.Add(speed.Multiply(powerup));
-    Vector2 result2 = position + speed * powerup;
+    std::cout << "e1.x: " << e1.x << ", e1.y: " << e1.y << std::endl;
 
-    //用运算符代替函数调用更简洁,C++和C#都推荐这么做但JAVA不支持运算符重载
-    // if(result1.equals(result2))
-    //     std::cout << "The results are equal!" << std::endl;
-
-    if(result1 == result2)
-        std::cout << "The results are equal!" << std::endl;
-
-    if(result1 != result2)
-        std::cout << "The result is not a zero vector!" << std::endl;
-    
-
-    std::cout << result2 << std::endl;
-
-
+    std::cout << "e3.x: " << e3.x << ", e3.y: " << e3.y << std::endl;
     return 0;
 }

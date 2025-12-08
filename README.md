@@ -46,7 +46,7 @@ int main(int, char**) {
 }
 ```
 
-### 核心区别：class vs struct
+### 核心区别：Pointers vs References
 
    > [!IMPORTANT]
    > **必须初始化**
@@ -1209,6 +1209,271 @@ Vector2 operator*(const Vector2& other) const;
 
 * 运算符重载的目标是**提升可读性和表达力**，而不是制造“魔法”；
 * 看看同样逻辑用“普通函数调用方式”和“运算符方式”谁更清楚，如果运算符版本让人一眼就懂，那就是一个好的重载场景。
+
+---
+
+## this 关键字与 this 指针 (this Keyword & this Pointer)
+
+在前面的例子里多次提到：
+
+* 非静态成员函数内部可以直接访问成员变量（好像有一个“隐形的对象”在那儿）；
+* 静态成员函数“没有 this 指针”，所以不能访问非静态成员。
+
+这一节结合教程第 43p 和 `main.cpp` 中的 `Entity` 例子，总结一下 C++ 里的 **`this` 关键字 / this 指针 (this pointer)**：
+
+1. `this` 本质上是一个指向“当前对象”的指针，是成员函数的**隐式参数**；
+2. 在普通成员函数里，`this` 的类型是 `ClassName*`；在 `const` 成员函数里，是 `const ClassName*`；
+3. 可以用 `this->` 来消除成员和形参同名时的歧义，或者在模板/继承场景中显式指出是成员；
+4. 常见用法：把当前对象 `*this` 作为引用传给函数，或返回 `*this` 实现链式调用。
+
+### 1. 示例：在构造函数中使用 this
+
+`main.cpp` 中的代码：
+
+```cpp
+class Entity;
+
+void PrintEntity(const Entity& e);
+
+class Entity
+{
+public:
+    int x, y;
+
+    Entity(int x, int y)
+    {
+        // Entity* e = this; // this 是指向当前对象的指针
+        // e->x = x;
+        // e->y = y;
+
+        this->x = x; // 等价于直接写 x = x，但这里用 this-> 更清晰地表明是“当前对象的 x”
+        this->y = y;
+
+        // 在类中调用类外的函数，并以当前对象作为参数传递
+        PrintEntity(*this); // *this 是“当前对象本身”，类型是 Entity& 或 const Entity&
+    }
+
+    int GetX() const
+    {
+        const Entity& e = *this; // 在 const 成员函数中，*this 的类型是 const Entity&
+        return x;
+    }
+};
+
+void PrintEntity(const Entity& e)
+{
+    // 打印或处理 e 的逻辑
+}
+```
+
+关键点：
+
+* 在 `Entity(int x, int y)` 里，`this` 的真实类型是 `Entity*`；
+* `this->x`、`this->y` 只是显式写出了“通过 this 指针访问当前对象成员”的意思，和直接写 `x`、`y` 等价；
+* `PrintEntity(*this)` 中的 `*this` 把 `this` 解引用，得到“当前对象本身”作为一个引用，刚好可以绑定到形参 `const Entity& e` 上；
+* 在 `GetX() const` 这样的 **const 成员函数 (const member function)** 中，`this` 的真实类型是 `const Entity*`，所以 `*this` 的类型是 `const Entity&`。
+
+> [!IMPORTANT]
+> **成员函数签名背后的隐式 this 参数**
+>
+> * 从编译器的角度看，成员函数
+>
+>   ```cpp
+>   int Entity::GetX() const;
+>   ```
+>
+>   大致等价于一个带额外参数的普通函数：
+>
+>   ```cpp
+>   int GetX(const Entity* const this);
+>   ```
+>
+>   或者写成引用版本也可以理解：
+>
+>   ```cpp
+>   int GetX(const Entity& self);
+>   ```
+>
+> * 也就是说：
+>   * 每个非静态成员函数其实都隐式多了一个 `this` 参数；
+>   * 非 `const` 成员函数相当于 `Entity* this`，可以修改对象；
+>   * `const` 成员函数相当于 `const Entity* this`，承诺不会修改对象（除非成员是 `mutable`）。
+
+### 2. this-> 的常见用途：消除歧义、突出“这是成员”
+
+在构造函数或成员函数中，经常会把形参命名成和成员变量一样：
+
+```cpp
+class Point
+{
+public:
+    int x, y;
+
+    Point(int x, int y)
+    {
+        // 直接写 x = x; // 会把形参 x 赋值给自己，无法访问成员
+
+        this->x = x; // 用 this->x 表示“当前对象的 x 成员”
+        this->y = y;
+    }
+};
+```
+
+在这种场景下：
+
+* 裸写 `x` / `y` 指的是“最近的同名变量”（即形参 `x` / `y`）；
+* `this->x` / `this->y` 明确表示“当前对象的成员变量”，帮助编译器和读代码的人区分两者。
+
+此外，在一些模板继承的复杂场景里，基类成员需要通过 `this->member` 的方式才能被找到，这里先有个印象即可，后面学模板时会再遇到。
+
+### 3. 把当前对象 *this 传出：参数和链式调用
+
+`this` 最常见的两个“传出”场景是：
+
+1. 把 `*this` 作为引用参数传给函数；
+2. 从成员函数中 `return *this;`，实现链式调用。
+
+前者已经在 `PrintEntity(*this);` 中见过，后者可以用一个简单示例来理解：
+
+```cpp
+class Vector2
+{
+public:
+    float x, y;
+
+    Vector2(float x, float y)
+        : x(x), y(y) {}
+
+    Vector2& Add(const Vector2& other)
+    {
+        x += other.x;
+        y += other.y;
+        return *this; // 返回当前对象的引用，支持链式调用
+    }
+};
+
+int main()
+{
+    Vector2 v(1.0f, 2.0f);
+    Vector2 offset(0.5f, 0.5f);
+
+    v.Add(offset).Add(offset); // 等价于连续两次调用 Add
+}
+```
+
+> [!TIP]
+> **链式调用 (Method Chaining) 的核心：返回 *this**
+>
+> * 成员函数返回类型用引用（`ClassName&` 或 `const ClassName&`），在函数末尾 `return *this;`；
+> * 调用方就可以写成 `obj.Foo().Bar().Baz();`，每一步都在操作“同一个对象”；
+> * 这在构建器 (builder)、流式 API（例如 `std::ostream& operator<<`）中非常常见。
+
+结合你在 `main.cpp` 里的实验代码，可以再补充一个对比思路：
+
+```cpp
+class Entity
+{
+public:
+    int x, y;
+
+    // 版本 1：修改自己 + 链式调用
+    Entity& Add(const Entity& other)
+    {
+        x += other.x;
+        y += other.y;
+        return *this;           // 关键：返回 *this 的引用
+    }
+
+    // 版本 2：返回新对象，不修改自己
+    Entity Add2(const Entity& other) const
+    {
+        return Entity(x + other.x, y + other.y); // 返回一个“计算结果”的新对象
+    }
+};
+
+int main()
+{
+    Entity e1{1, 2};
+    Entity e2{3, 4};
+
+    e1.Add(e2).Add(e2);       // 两次 Add 都在修改同一个 e1
+
+    Entity e3 = e2.Add2(e1)   // Add2 不改 e2，本身是 const 成员函数
+                    .Add2(e1); // 每一步都返回一个新的临时 Entity
+}
+```
+
+* `Add`：返回类型是 `Entity&`，`return *this;`，所以所有链式调用都在**同一个对象上累积修改**，类似“在原地堆加”；
+* `Add2`：返回类型是按值的 `Entity`，实现也没有改 `this`，而是每次都构造一个“结果对象”，更像**链式计算表达式**，而不是修改原对象。
+
+这两个版本都用到了 `*this`：
+
+* `Add` 中 `return *this;` 表示“把当前对象本身（引用）交给下一步继续用”；
+* `Add2` 里虽然没有显式写 `*this`，但可以理解为“把 `this` 指向的对象当作输入参与计算，返回一个全新的结果对象”。
+
+> [!NOTE]
+> **设计链式调用时的两个常见模式**
+>
+> * **命令式 / 原地修改风格**：
+>   * 返回类型：`ClassName&`；
+>   * 实现：修改成员，然后 `return *this;`；
+>   * 效果：`obj.Foo().Bar();` 一路都在改同一个 `obj`，适合“配置对象 / 构建器 / 累积修改”的场景；
+> * **函数式 / 返回新值风格**：
+>   * 返回类型：按值返回 `ClassName`；
+>   * 实现：不改 `this`，只用它的值来构造一个“新对象”返回；
+>   * 效果：`auto r = obj.Foo().Bar();`，更像是在“算表达式”，适合数学对象或不可变对象的设计。
+>
+> 选择哪种风格，取决于你是不是希望“中间步骤”就地修改原对象——但无论哪种方式，`this` 都是那个隐式传进来的“当前对象”，只不过你是把它当成“要被修改的东西”，还是当成“参与计算的输入”。
+
+### 4. this 与静态成员函数
+
+之前在“静态成员与对象实例”一节中提到：
+
+```cpp
+class Example {
+public:
+    int value = 0;          // 普通成员变量
+    static int s_Value;     // 静态成员变量
+
+    void NormalMethod() {
+        // 可以访问 this 上的一切
+        value = 10;
+        s_Value = 20;
+    }
+
+    static void StaticMethod() {
+        // 没有 this 指针，只能访问静态成员
+        // value = 10;      // ❌ 编译错误：不能在 static 里访问非 static 成员
+        s_Value = 20;       // ✅ OK
+    }
+};
+```
+
+> [!NOTE]
+> **为什么静态成员函数没有 this？**
+>
+> * 静态成员函数是“挂在类上的函数”，不依赖于某个具体对象，因此编译器不会为它们传入 `this` 参数；
+> * 换句话说：
+>   * 普通成员函数签名里隐式地有一个 `ClassName* this`；
+>   * 静态成员函数则完全没有这个额外参数，只能访问静态成员或通过显式对象参数访问非静态成员。
+
+---
+
+### 小结：把 this 当成“成员函数的第一个参数”
+
+> [!IMPORTANT]
+> **统一理解 this 指针 (this pointer)**
+>
+> * `this` 是一个指向“当前对象”的指针：
+>   * 在普通成员函数中，类型大致是 `ClassName* const this`；
+>   * 在 `const` 成员函数中，类型大致是 `const ClassName* const this`；
+> * 你可以用 `this->member` 显式访问成员，解决与形参/局部变量同名的冲突；
+> * 通过 `*this` 可以：
+>   * 把当前对象作为引用传给其他函数（如 `PrintEntity(*this)`）；
+>   * 从成员函数中 `return *this;`，实现链式调用；
+> * 静态成员函数没有 `this`，因此**不能**访问非静态成员，只能访问静态成员或通过显式传入的对象参数来操作对象。
+
+理解 `this` 之后，你可以把“成员函数”在脑中统一想象成“多了一个隐式的第一个参数”的普通函数，这会在后面学习更底层的实现、虚函数表 (vtable)、模板和继承时，帮你更容易看懂编译器在做什么。
 
 ---
 
