@@ -1030,6 +1030,188 @@ void Foo()
 
 ---
 
+## 运算符与运算符重载 (Operators & Operator Overloading)
+
+这一部分结合教程第 42p 和 `main.cpp` 中的 `Vector2` 例子，总结 C++ 中**运算符 (Operator)** 以及**运算符重载 (Operator Overloading)** 的常见用法和设计习惯。
+
+### 1. 先看一个没有运算符重载的写法
+
+假设有一个二维向量类型（例如做 2D 游戏的坐标）：
+
+```cpp
+struct Vector2
+{
+    float x, y;
+
+    Vector2(float x, float y)
+        : x(x), y(y) {}
+
+    Vector2 Add(const Vector2& other) const
+    {
+        return Vector2(x + other.x, y + other.y);
+    }
+
+    Vector2 Multiply(const Vector2& other) const
+    {
+        return Vector2(x * other.x, y * other.y);
+    }
+};
+
+int main()
+{
+    Vector2 position(4.0f, 4.0f);
+    Vector2 speed(0.5f, 1.5f);
+    Vector2 powerup(1.1f, 1.1f);
+
+    // 在 Java 中通常只能这样写：通过函数组合
+    Vector2 result1 = position.Add(speed.Multiply(powerup));
+}
+```
+
+这种写法完全没问题，但对于“数学对象”来说，不够直观。如果能写成 `position + speed * powerup` 会更贴近数学公式。
+
+### 2. 给 Vector2 重载运算符
+
+在 C++ 中，可以给自定义类型重载运算符，让它们支持 `+`、`*`、`==` 等操作：
+
+```cpp
+struct Vector2
+{
+    float x, y;
+
+    Vector2(float x, float y)
+        : x(x), y(y) {}
+
+    // 普通成员函数版本（便于复用逻辑）
+    Vector2 Add(const Vector2& other) const
+    {
+        return Vector2(x + other.x, y + other.y);
+    }
+
+    Vector2 Multiply(const Vector2& other) const
+    {
+        return Vector2(x * other.x, y * other.y);
+    }
+
+    // 运算符重载：加法
+    Vector2 operator+(const Vector2& other) const
+    {
+        // 推荐写法：运算符内部调用已有的函数，保持逻辑集中
+        return Add(other);
+    }
+
+    // 运算符重载：逐元素相乘
+    Vector2 operator*(const Vector2& other) const
+    {
+        return Multiply(other);
+    }
+
+    // 运算符重载：相等比较
+    bool operator==(const Vector2& other) const
+    {
+        return x == other.x && y == other.y;
+    }
+
+    bool operator!=(const Vector2& other) const
+    {
+        return !(*this == other);
+    }
+};
+
+// 重载输出运算符 (Operator<<)，方便直接打印
+std::ostream& operator<<(std::ostream& stream, const Vector2& other)
+{
+    stream << other.x << ", " << other.y;
+    return stream;              // 返回 stream 以支持链式调用
+}
+
+int main()
+{
+    Vector2 position(4.0f, 4.0f);
+    Vector2 speed(0.5f, 1.5f);
+    Vector2 powerup(1.1f, 1.1f);
+
+    // 在 Java 中这是唯一写法：
+    Vector2 result1 = position.Add(speed.Multiply(powerup));
+
+    // 在 C++ / C# 中，我们可以用运算符重载，让代码更接近数学公式：
+    Vector2 result2 = position + speed * powerup;
+
+    if (result1 == result2)
+        std::cout << "The results are equal!" << std::endl;
+
+    if (result1 != result2)
+        std::cout << "The result is not a zero vector!" << std::endl;
+
+    std::cout << result2 << std::endl; // 利用 operator<< 打印向量
+}
+```
+
+> [!IMPORTANT]
+> **运算符重载的本质**
+>
+> * `a + b` 只是 `a.operator+(b)` 或 `operator+(a, b)` 的一种语法糖；
+> * `a == b` 对应 `a.operator==(b)`；
+> * `std::cout << value` 对应全局函数 `operator<<(std::ostream&, const T&)`；
+> * 运算符重载不会“修改语言规则”，只是让你能为自定义类型定义这些“运算符对应的函数”。
+
+### 3. 为什么同时保留函数版本和运算符版本？
+
+在上面的代码里，既有 `Add` / `Multiply` 这样的普通成员函数，又有 `operator+` / `operator*`：
+
+```cpp
+Vector2 Add(const Vector2& other) const;
+Vector2 Multiply(const Vector2& other) const;
+
+Vector2 operator+(const Vector2& other) const;
+Vector2 operator*(const Vector2& other) const;
+```
+
+这么做有几个好处：
+
+* **逻辑复用**：运算符内部调用 `Add` / `Multiply`，如果以后改计算逻辑，只需要改一处；
+* **可读性选择**：
+  * 数学/几何场景下，`a + b * c` 一眼就能看出意思；
+  * 某些不适合用运算符表达的场景（例如 `Normalize`、`Rotate`），可以继续用普通成员函数；
+* **语言兼容思维**：在不支持运算符重载的语言（例如 Java）里，`Add` / `Multiply` 就是唯一选择，保持这套接口可以帮助你更好迁移思维。
+
+> [!TIP]
+> **推荐的写法习惯**
+>
+> * 定义一个语义清晰的普通函数（例如 `Add` / `Multiply`）；
+> * 在对应的 `operator+` / `operator*` 中**直接调用这个函数**；
+> * 这样既保留了“函数调用风格”，又享受了“运算符表达式”的简洁。
+
+### 4. 运算符重载的设计建议
+
+虽然 C++ 支持给几乎所有运算符重载，但**并不是应该到处乱用**。一些常见的建议：
+
+> [!IMPORTANT]
+> **什么时候适合重载运算符？**
+>
+> * 类型本身就是“数学对象”或“值语义对象”：如向量 (vector)、矩阵 (matrix)、复数 (complex number)、字符串 (string) 等；
+> * 运算符的语义与数学或直觉一致：
+>   * `+` 表示“合并 / 相加”；
+>   * `-` 表示“相减”；
+>   * `*` 对向量可以表示点乘/叉乘/逐元素乘（注意要在文档里说明清楚）；
+>   * `==` / `!=` 表示相等性比较；
+>   * `<<` 常用于“打印到输出流 (Output Stream)”；
+> * 读代码的人看到 `a + b` 时，能大致猜出发生了什么，而不是完全意料之外的副作用。
+
+> [!NOTE]
+> **什么时候要谨慎使用运算符重载？**
+>
+> * 如果运算符做的事情和它在数学上的直觉意思完全不符（例如 `operator+` 里做了文件写入或网络请求）；
+> * 如果重载导致表达式难以理解、难以调试（例如重载 `&&` / `||` 隐藏控制流）；
+> * 如果只是为了“炫技”，而不是让代码更好读。
+
+总体思路是：
+
+* 运算符重载的目标是**提升可读性和表达力**，而不是制造“魔法”；
+* 看看同样逻辑用“普通函数调用方式”和“运算符方式”谁更清楚，如果运算符版本让人一眼就懂，那就是一个好的重载场景。
+
+---
+
 ## 类的继承 (Inheritance)
 
 这一部分用 `Entity` / `Player` 的例子，理解几件事：

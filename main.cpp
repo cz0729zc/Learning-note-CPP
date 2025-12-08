@@ -1,38 +1,81 @@
 #include <iostream>
 
-class Entity
+//建议写的时候把Add和运算符重载都写上,方便阅读和使用
+struct Vector2
 {
-private:
-    std::string m_name;
-    int m_Age;
-public:
-    explicit Entity(const std::string& name)
-        : m_name(name), m_Age(-1) {}
+    float x, y;
 
-    explicit Entity(int age)               //在加上explicit关键字后，防止隐式转换
-        : m_name("Unknown"), m_Age(age) {}
+    Vector2(float x, float y)
+        : x(x), y(y) {}
+
+    Vector2 Add(const Vector2& other) const
+    {
+        //函数调用运算符(不常见)
+        // return *this + other;
+        return Vector2(x + other.x, y + other.y);
+    }
+
+    Vector2 operator+(const Vector2& other) const
+    {
+        //运算符调用函数(更常见,推荐)
+        return Add(other);
+        // return Vector2(x + other.x, y + other.y);
+    }
+
+    Vector2 Multiply(const Vector2& other) const
+    {
+        //函数调用运算符(不常见)
+        // return *this * other;
+        return Vector2(x * other.x, y * other.y);
+    }
+
+    Vector2 operator*(const Vector2& other) const
+    {
+        //运算符调用函数(更常见,推荐)
+        return Multiply(other);
+        // return Vector2(x * other.x, y * other.y);
+    }
+
+    bool operator==(const Vector2& other) const
+    {
+        return x == other.x && y == other.y;
+    }
+
+    bool operator!=(const Vector2& other) const
+    {
+        return !(*this == other);
+    }
 };
 
-void PrintEntity(const Entity& entity)
+//重载输出运算符,这里的stream参数是由cout传入的
+std::ostream& operator<<(std::ostream& stream, const Vector2& other)
 {
-
+    stream << other.x << ", " << other.y;
+    return stream;
 }
 
 int main() 
 {
-    // PrintEntity(22);
-    // PrintEntity(std::string("cherno"));
-    // PrintEntity(Entity("cherno"));
+    Vector2 position(4.0f, 4.0f);
+    Vector2 speed(0.5f, 1.5f);
+    Vector2 powerup(1.1f, 1.1f);
 
-    // 参数调用了类的构造函数实现了隐式转换
-    // Entity a = std::string("cherno");
-    // Entity b = 25;
+    //在JAVA中这是唯一的选择，但在C++中我们可以使用运算符重载来让代码更简洁
+    Vector2 result1 = position.Add(speed.Multiply(powerup));
+    Vector2 result2 = position + speed * powerup;
 
-    // 显式调用类的构造函数，防止隐式转换
-    Entity a = Entity("cherno");
-    Entity b = Entity(25);
-    Entity c("cherno");
-    Entity d(25);
+    //用运算符代替函数调用更简洁,C++和C#都推荐这么做但JAVA不支持运算符重载
+    // if(result1.equals(result2))
+    //     std::cout << "The results are equal!" << std::endl;
+
+    if(result1 == result2)
+        std::cout << "The results are equal!" << std::endl;
+
+    if(result1 != result2)
+        std::cout << "The result is not a zero vector!" << std::endl;
+    
+
+    std::cout << result2 << std::endl;
 
 
     return 0;
