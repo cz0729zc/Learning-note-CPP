@@ -186,7 +186,7 @@ int main()
 
 ### 3. 用自定义“智能指针”把堆对象和作用域绑定（RAII）
 
-你在 `main.cpp` 里写了一个非常经典的 RAII 小例子：
+在 `main.cpp` 里写了一个非常经典的 RAII 小例子：
 
 ```cpp
 // 简单的智能指针实现
@@ -276,6 +276,195 @@ int main()
 掌握“栈 vs 堆 vs 生命周期”之后，再回头看构造函数 / 析构函数、RAII、智能指针，会发现它们其实都是在围绕同一个主题：
 
 > **“对象活多久？谁负责在它死的时候把资源收好？”**
+
+---
+
+## 智能指针 (Smart Pointers)
+
+在上一节“栈与堆及对象生命周期”里，你已经看到：
+
+* 栈对象的生命周期和作用域绑定，自动构造 / 析构；
+* 堆对象需要手动 `delete`，容易忘记导致内存泄漏；
+* 可以用 RAII 封装一个 `ScopedPtr`，在析构时自动 `delete` 管理的指针。
+
+这一节用标准库中的智能指针来总结同样的思想：
+
+1. `std::unique_ptr`：**独占所有权 (unique ownership)**；
+2. `std::shared_ptr`：**共享所有权 (shared ownership)**；
+3. `std::weak_ptr`：**弱引用 (weak reference)**，不参与所有权计数，避免循环引用。
+
+> [!TIP]
+> **一个总原则**
+>
+> * 优先使用 `std::unique_ptr`；
+> * 只有在明确需要“多处共享同一对象的生命周期”时，才使用 `std::shared_ptr`；
+> * 需要观察一个 `shared_ptr` 管理的对象但不想延长其寿命时，用 `std::weak_ptr`。
+
+### 1. std::unique_ptr：独占所有权
+
+`std::unique_ptr<T>` 表示“**这块堆内存只归我一个人管**”：
+
+```cpp
+class Entity
+{
+public:
+    Entity()
+    {
+        std::cout << "Created Entity" << std::endl;
+    }
+
+    ~Entity()
+    {
+        std::cout << "Destroyed Entity" << std::endl;
+    }
+
+    void Print()
+    {
+        std::cout << "Hello Entity" << std::endl;
+    }
+};
+
+int main()
+{
+    {
+        // 显式构造方式（不推荐，容易忘记写 new）
+        // std::unique_ptr<Entity> entity(new Entity());
+
+        // 推荐方式：std::make_unique
+        std::unique_ptr<Entity> entity = std::make_unique<Entity>();
+
+        entity->Print();
+
+        // std::unique_ptr<Entity> entity2 = entity; // ❌ 编译错误：unique_ptr 不允许拷贝
+
+        // 如果希望转移所有权，可以使用 std::move
+        std::unique_ptr<Entity> entity2 = std::move(entity); // 现在 entity2 拥有对象
+        // entity 此时变为空（不再拥有任何对象）
+    } // 作用域结束，最后一个 unique_ptr 自动调用 ~Entity()，释放堆内存
+
+    return 0;
+}
+```
+
+> [!IMPORTANT]
+> **unique_ptr 的几个关键点**
+>
+> * 独占所有权：不能拷贝，只能“移动所有权”（`std::move`）；
+> * 离开作用域时自动 `delete` 持有的对象，无需手动 `delete`；
+> * 最推荐的创建方式是 `std::make_unique<T>(...)`：
+>   * 一次性完成分配和构造；
+>   * 更安全（异常安全）；
+>   * 写法简洁。
+
+大部分情况下，如果你只是“在某处需要在堆上放一个对象”，用 `std::unique_ptr` 就足够了。只有当你**必须让多个地方共享这块对象的寿命**时，才需要考虑 `std::shared_ptr`。
+
+### 2. std::shared_ptr：共享所有权 & 引用计数
+
+`std::shared_ptr<T>` 用**引用计数 (Reference Counting)** 来管理一块堆内存：
+
+* 每拷贝一次，引用计数 +1；
+* 每销毁一个 `shared_ptr`，引用计数 -1；
+* 当计数变为 0 时，自动 `delete` 管理的对象。
+
+在你的 `main.cpp` 中：
+
+```cpp
+int main()
+{
+    // 使用标准库中的 shared_ptr 智能指针
+    std::weak_ptr<Entity> weakEntity;  // 弱引用，不拥有对象
+    {
+        // shared_ptr 支持拷贝，每拷贝一次引用计数 +1
+        std::shared_ptr<Entity> sharedEntity = std::make_shared<Entity>();
+
+        // std::shared_ptr<Entity> sharedEntity2 = sharedEntity; // ✅ 允许，多一个共享者
+
+        weakEntity = sharedEntity; // weak_ptr 可以从 shared_ptr 构造，不增加引用计数
+    }   // 这里 sharedEntity 离开作用域，引用计数减 1，为 0 时自动销毁 Entity
+
+    return 0;
+}
+```
+
+> [!TIP]
+> **什么时候用 shared_ptr？**
+>
+> * 当一块堆内存需要被**多个所有者共同管理**，无法简单归属到某一层级时（例如图结构、资源缓存）；
+> * 当你希望“只要还有任何一个地方在用，就不要销毁对象；所有人都放弃后再自动释放”。
+
+> [!IMPORTANT]
+> **shared_ptr 的注意事项**
+>
+> * 每次拷贝都要更新引用计数，开销比 `unique_ptr` 大；
+> * 最难的问题是**循环引用 (cyclic reference)**：
+>   * A 持有指向 B 的 `shared_ptr`，B 又持有指向 A 的 `shared_ptr`；
+>   * 即使没人再用它们，引用计数都 >=1，永远不会变为 0，导致内存泄漏；
+> * 解决方法就是配合 `std::weak_ptr` 使用。
+
+### 3. std::weak_ptr：弱引用，打破循环
+
+`std::weak_ptr<T>` 是“观察者 (observer)”：
+
+* 它**不增加引用计数**；
+* 不拥有对象，只是“看着那块内存”；
+* 需要使用对象时，通过 `lock()` 临时获取一个 `std::shared_ptr`：
+  * 如果对象还活着，`lock()` 返回一个有效的 `shared_ptr`；
+  * 如果对象已经被销毁，`lock()` 返回空指针（`nullptr`）。
+
+结合你的示例，可以这样补全典型用法：
+
+```cpp
+int main()
+{
+    std::weak_ptr<Entity> weakEntity;
+
+    {
+        std::shared_ptr<Entity> sharedEntity = std::make_shared<Entity>();
+        weakEntity = sharedEntity; // weak_ptr 从 shared_ptr 构造，不增加引用计数
+
+        // 此时：引用计数为 1（sharedEntity），weakEntity 只是观察它
+    }
+    // sharedEntity 离开作用域，引用计数变为 0，Entity 被销毁
+
+    // 之后，如果我们想使用 weakEntity 指向的对象：
+    if (auto locked = weakEntity.lock())
+    {
+        // 如果对象还活着，这里可以安全使用
+        locked->Print();
+    }
+    else
+    {
+        // 对象已经被销毁，lock() 返回空指针
+        std::cout << "Entity already destroyed" << std::endl;
+    }
+
+    return 0;
+}
+```
+
+> [!NOTE]
+> **weak_ptr 的典型用途**
+>
+> * 打破循环引用：一方持有 `shared_ptr`，另一方只持有 `weak_ptr`；
+> * 做“缓存 / 观察者”：
+>   * 需要知道某个资源是否还活着；
+>   * 但不希望自己也变成一个“所有者”，延长资源的生命周期。
+
+---
+
+### 小结：智能指针 = RAII + 所有权语义
+
+> [!IMPORTANT]
+> **从原始指针到智能指针的迁移思路**
+>
+> * 原始指针 (`T*`) 本身不表达所有权，谁来 `delete`、什么时候 `delete` 全靠约定，极易出错；
+> * 智能指针在类型层面写清楚“**谁负责这块内存的生命周期**”：
+>   * `std::unique_ptr<T>`：**唯一所有者**，离开作用域就销毁对象；
+>   * `std::shared_ptr<T>`：**共享所有者**，最后一个释放时销毁对象；
+>   * `std::weak_ptr<T>`：**非所有者观察者**，不影响对象是否被销毁；
+> * 配合 RAII（构造获取资源、析构释放资源），可以最大程度减少手写 `new` / `delete`，降低内存泄漏和悬空指针的风险。
+
+在实际项目中，优先考虑用智能指针来表达所有权关系，只在少数明确需要的底层代码中使用原始指针，这样既能保留 C++ 对内存的精细控制，又能显著降低日常编码的心智负担。
 
 ---
 
