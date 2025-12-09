@@ -98,6 +98,187 @@ public: // 需要显式声明 public 才能达到与 struct 相同的效果
 
 ---
 
+## 栈与堆及对象生命周期 (Stack, Heap & Object Lifetime)
+
+这一节结合教程第 44p 和 `main.cpp` 中的示例，梳理几个经常混在一起说的概念：
+
+1. **栈 (Stack)** 上的对象：跟随作用域自动创建和销毁；
+2. **堆 (Heap)** 上的对象：用 `new`/`delete` 手动管理生命周期；
+3. RAII 思想：让“作用域结束自动销毁”的行为也适用于堆对象——这就是智能指针背后的核心理念。
+
+### 1. 栈上对象：跟随作用域自动销毁
+
+```cpp
+class Entity
+{
+public:
+    Entity()
+    {
+        std::cout << "Created Entity" << std::endl;
+    }
+
+    ~Entity()
+    {
+        std::cout << "Destroyed Entity" << std::endl;
+    }
+};
+
+int main()
+{
+    {
+        Entity e; // e 在栈上 (stack)，进入作用域时构造，离开作用域时自动析构
+    }             // 走到这里，e 离开作用域，自动调用 ~Entity()，打印 "Destroyed Entity"
+
+    return 0;
+}
+```
+
+> [!IMPORTANT]
+> **栈上对象的生命周期**
+>
+> * 对象作为**局部变量**定义在某个作用域（`{ ... }`）内：
+>   * 进入作用域时：调用构造函数，分配栈空间；
+>   * 离开作用域时：自动调用析构函数，释放栈空间；
+> * 不需要手动 `delete`，编译器会保证“用完就销毁”；
+> * 这也是很多 C++ 代码更偏爱“栈对象”的原因：
+>   * 生命周期和作用域绑定，简单、直观；
+>   * 性能好（栈分配/回收很快）。
+
+### 2. 堆上对象：需要手动 delete 的 new
+
+同一个 `Entity`，如果换成在堆上创建：
+
+```cpp
+int main()
+{
+    {
+        // 在堆 (heap) 上分配 Entity
+        Entity* e = new Entity(); // 调用构造函数，返回指针
+
+        // ... 使用 e
+
+        delete e; // ❗ 必须手动调用 delete 才会调用 ~Entity()，否则内存泄漏
+    }
+
+    return 0;
+}
+```
+
+> [!TIP]
+> **堆对象的两个关键点**
+>
+> * 用 `new` / `new[]` 创建的对象**不会**在指针变量离开作用域时自动销毁；
+> * 它们的生命周期由你决定：
+>   * 何时 `delete` / `delete[]`，对象才会真正析构、内存才会被归还；
+>   * 如果忘记 `delete`，就会发生**内存泄漏 (Memory Leak)**。
+
+栈和堆的一个常见误区是：
+
+> *“变量是在栈上还是堆上，取决于你是写了 `Entity e;` 还是 `Entity* e = new Entity();`。”*
+
+更准确的说法是：
+
+* `Entity e;`：`e` 本身就是对象，存放在栈上；
+* `Entity* e = new Entity();`：
+  * 指针变量 `e` 在栈上；
+  * 真正的 `Entity` 对象在堆上；
+  * 指针变量生命周期结束时，堆上的对象**不会自动销毁**，除非你手动 `delete` 或用 RAII 封装起来。
+
+### 3. 用自定义“智能指针”把堆对象和作用域绑定（RAII）
+
+你在 `main.cpp` 里写了一个非常经典的 RAII 小例子：
+
+```cpp
+// 简单的智能指针实现
+class ScopedPtr
+{
+private:
+    Entity* m_ptr;
+public:
+    explicit ScopedPtr(Entity* ptr)
+        : m_ptr(ptr)
+    {
+    }
+
+    ~ScopedPtr()
+    {
+        delete m_ptr; // 作用域结束时自动释放堆上的 Entity
+    }
+};
+
+int main()
+{
+    {
+        // 在堆上创建 Entity，把指针交给 ScopedPtr 管理
+        ScopedPtr e(new Entity());
+
+        // ... 使用 e 管理的 Entity
+    } // 走出作用域时，调用 ScopedPtr::~ScopedPtr()，自动 delete 掉堆上的 Entity
+
+    return 0;
+}
+```
+
+这里发生了两层“生命周期绑定”：
+
+1. `ScopedPtr e` 是栈对象：
+   * 进入花括号作用域时构造；
+   * 离开作用域时析构。
+2. 在 `ScopedPtr` 的析构函数里 `delete m_ptr;`：
+   * 让“`ScopedPtr` 的生命周期结束”这件事，顺带触发“被管理的堆对象销毁”。
+
+这就是 C++ 中非常重要的一个思想：**RAII（Resource Acquisition Is Initialization，资源获取即初始化）**：
+
+> *“把资源（堆内存、文件句柄、锁等）封装进一个对象，让这个对象的构造负责获取资源，析构负责释放资源，从而把资源的生命周期和作用域绑定起来。”*
+
+> [!IMPORTANT]
+> **RAII + 栈对象 = 更安全的堆资源管理**
+>
+> * 不直接在很多地方裸用 `new` / `delete`，而是：
+>   * 在构造函数里获取资源（比如 `new Entity()`、`fopen` 等）；
+>   * 在析构函数里释放资源（比如 `delete`、`fclose` 等）；
+> * 外部代码只需要把这个“管理类”当作一个普通的栈对象使用：
+>   * 进入作用域 → 构造 → 获取资源；
+>   * 离开作用域 → 析构 → 自动释放资源；
+> * 这可以大幅减少“忘记释放资源”的错误，让生命周期变得**可见且可预测**。
+
+### 4. 真正的智能指针：std::unique_ptr / std::shared_ptr
+
+上面的 `ScopedPtr` 是一个“只能管理一个指针、不可拷贝”的简化版智能指针模型。在标准库里，已经为你提供了更完整、更安全的实现：
+
+```cpp
+#include <memory>
+
+int main()
+{
+    {
+        // unique_ptr：独占所有权，离开作用域时自动 delete
+        std::unique_ptr<Entity> e1 = std::make_unique<Entity>();
+
+        // shared_ptr：共享所有权，最后一个引用被销毁时自动 delete
+        std::shared_ptr<Entity> e2 = std::make_shared<Entity>();
+    } // 作用域结束，e1 / e2 自己离开栈，内部持有的堆对象也会自动释放
+
+    return 0;
+}
+```
+
+> [!TIP]
+> **现代 C++ 的推荐用法**
+>
+> * 优先使用栈对象：`Entity e;`，让作用域替你管理生命周期；
+> * 如果必须在堆上分配：
+>   * 优先使用 `std::unique_ptr` / `std::shared_ptr` 等标准智能指针；
+>   * 极少数情况下才直接 `new` / `delete`，而且通常会尽快把原始指针交给某个 RAII 容器管理；
+> * Cherno 教程中的 `ScopedPtr` 例子，就是在向你展示“智能指针的核心思想”——
+>   实际项目中直接用标准库的智能指针即可，不需要自己重新造轮子。
+
+掌握“栈 vs 堆 vs 生命周期”之后，再回头看构造函数 / 析构函数、RAII、智能指针，会发现它们其实都是在围绕同一个主题：
+
+> **“对象活多久？谁负责在它死的时候把资源收好？”**
+
+---
+
 ## 数组基础 (Arrays Basics)
 
 这一部分结合教程第 31p 和 `main.cpp` 的示例，总结 C++ 中两种常见的“定长数组”形式：

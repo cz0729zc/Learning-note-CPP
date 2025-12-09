@@ -1,68 +1,50 @@
 #include <iostream>
-#include <string>
-
-class Entity;
-
-void PrintEntity(const Entity& e);
 
 class Entity
 {
 public:
-    int x, y;
-
-    Entity(int x, int y)
+    Entity()
     {
-        // Entity* e = this;
-        // e->x = x;
-        // e->y = y;
-        
-        this->x = x;
-        this->y = y;
-
-        //在类中调用类外的函数并以类的当前对象作为参数传递，是使用this指针的一个常见场景
-        PrintEntity(*this);
+        std::cout << "Created Entity" << std::endl;
     }
 
-    int GetX() const
+    ~Entity()
     {
-        const Entity& e = *this;
-
-        return x;
-    }
-
-    //链式调用
-    Entity& Add(const Entity& other)
-    {
-        x += other.x;
-        y += other.y;
-        return *this; // 返回当前对象的引用，支持链式调用
-    }
-
-    //失败案例
-    //链式调用
-    Entity Add2(const Entity other)
-    {
-        // x += other.x;
-        // y += other.y;
-        // return *this; // 返回当前对象的引用，支持链式调用
-        return Entity(x + other.x, y + other.y);
+        std::cout << "Destroyed Entity" << std::endl;
     }
 };
 
-void PrintEntity(const Entity& e)
+// 简单的智能指针实现
+class ScopedPtr
 {
+private:
+    Entity* m_ptr;
+public:
+    ScopedPtr(Entity* ptr)
+        :m_ptr(ptr)
+    {
 
-}
+    }
+
+    ~ScopedPtr()
+    {
+        delete m_ptr;
+    }
+};
 
 int main()
 {
-    Entity e1(1, 2);
-    Entity e2(3, 4);
-    e1.Add(e2).Add(e2); // 链式调用示例
-    Entity e3 = e2.Add2(e1).Add2(e1); // 链式调用示例
+    {
+        // 在栈上创建实体
+        // Entity e;
 
-    std::cout << "e1.x: " << e1.x << ", e1.y: " << e1.y << std::endl;
+        // 在堆上创建实体
+        // Entity* e = new Entity();
 
-    std::cout << "e3.x: " << e3.x << ", e3.y: " << e3.y << std::endl;
+        // 我想在堆上分配内存,并且想在超出作用域时自动释放内存，可以使用智能指针。此时智能指针e是在栈上创建的Entity是在堆上创建的，此时智能指针e超出作用域时会自动调用析构函数，从而释放Entity的内存。
+        ScopedPtr e = new Entity();
+        // ScopedPtr e(new Entity());
+    }
+
     return 0;
 }
