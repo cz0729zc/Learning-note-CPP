@@ -450,6 +450,53 @@ int main()
 >   * 需要知道某个资源是否还活着；
 >   * 但不希望自己也变成一个“所有者”，延长资源的生命周期。
 
+为了更直观地理解“循环引用 + weak_ptr 打破”的场景，可以看一个简单的双向关联示例：
+
+```cpp
+struct B; // 前向声明
+
+struct A
+{
+    std::shared_ptr<B> other; // A 拥有 B
+    ~A() { std::cout << "A destroyed" << std::endl; }
+};
+
+struct B
+{
+    // std::shared_ptr<A> other;      // ⚠️ 如果这里也是 shared_ptr，就会形成循环引用
+    std::weak_ptr<A> other;           // 使用 weak_ptr 打破循环
+    ~B() { std::cout << "B destroyed" << std::endl; }
+};
+
+int main()
+{
+    {
+        auto a = std::make_shared<A>();
+        auto b = std::make_shared<B>();
+
+        a->other = b;         // A 拥有 B（shared_ptr）
+        b->other = a;         // B 只是观察 A（weak_ptr），不增加引用计数
+    }   // 这里 a 和 b 都离开作用域，引用计数归零，对象正常析构
+
+    return 0;
+}
+```
+
+> [!IMPORTANT]
+> **shared_ptr 循环引用坑：为什么需要 weak_ptr？**
+>
+> * 如果上面 `B::other` 也是 `std::shared_ptr<A>`：
+>   * A 持有 B 的 shared_ptr，B 持有 A 的 shared_ptr；
+>   * 即使 `main` 中的 `a` / `b` 离开作用域，引用计数至少仍然为 1；
+>   * 没有任何时刻计数会变成 0，对象永远不会析构 → 内存泄漏；
+> * 替换成 `std::weak_ptr<A>` 后：
+>   * B 不再“拥有” A，只是观察它的存在；
+>   * 当最后一个 shared_ptr（这里是 `a`）销毁时，A 会正常析构；
+>   * A 析构时，其成员 `other`（指向 B 的 shared_ptr）也会销毁，B 随之析构；
+> * 结论：
+>   * 双向关系中通常只需要**一侧持有强引用 (shared_ptr)**，另一侧用 `weak_ptr` 即可；
+>   * 通过在类型设计中“有意识地区分所有者和观察者”，可以从根本上避免 shared_ptr 循环引用导致的泄漏。
+
 ---
 
 ### 小结：智能指针 = RAII + 所有权语义
@@ -666,7 +713,7 @@ const int* const a = new int;
 实践中，你可以用下面的更安全写法来表达“只读视图”：
 
 ```cpp
-int* raw = new int(25);
+ int* raw = new int(25);
 const int* view = raw;   // pointer to const：不能通过 view 改值，但 raw 仍然可以改
 ```
 
@@ -1582,6 +1629,215 @@ Vector2 operator*(const Vector2& other) const;
 
 ---
 
+## 浅拷贝与深拷贝 (Shallow Copy & Deep Copy)
+
+这一部分结合 `main.cpp` 中的 `String` 类，总结 C++ 中对象拷贝时最容易踩坑的点：
+
+> [!IMPORTANT]
+> **只要类里有指针成员，就要立刻思考：这个指针指向的资源应该怎么拷贝、怎么释放。**
+
+如果一个类只包含 `int`、`float` 这种普通值，编译器默认生成的拷贝通常没问题。但如果类里有 `char*`、`int*`、文件句柄、堆内存等“资源”，默认拷贝往往就不够了。
+
+### 1. 浅拷贝：只复制指针地址
+
+假设 `String` 内部有一个指针：
+
+```cpp
+class String
+{
+private:
+    char* m_buffer;
+    unsigned int m_size;
+};
+```
+
+如果没有自己写拷贝构造函数，编译器默认生成的拷贝构造函数会做**逐成员拷贝**：
+
+```cpp
+String str = "Zio zhang";
+String str2 = str; // 默认拷贝：把 m_buffer 的地址值复制给 str2
+```
+
+这就是浅拷贝 (Shallow Copy)：  
+`str.m_buffer` 和 `str2.m_buffer` 指向同一块堆内存。
+
+问题在于：两个对象都以为这块内存归自己管。作用域结束时，两个析构函数都会执行：
+
+```cpp
+~String()
+{
+    delete[] m_buffer;
+}
+```
+
+于是同一块内存会被释放两次，容易导致程序崩溃。这类问题通常叫**重复释放 (double free)**。
+
+> [!WARNING]
+> **浅拷贝的问题不在于“复制指针”本身，而在于复制之后出现了多个对象共同拥有同一块资源。**
+>
+> 如果只是借用、不负责释放，浅拷贝可能没问题；但如果析构函数里会 `delete`，就必须非常小心。
+
+### 2. 深拷贝：重新申请一块内存并复制内容
+
+正确做法是自己写拷贝构造函数，让新对象拥有自己的内存：
+
+```cpp
+class String
+{
+private:
+    char* m_buffer;
+    unsigned int m_size;
+
+public:
+    String(const char* string)
+    {
+        m_size = std::strlen(string);
+        m_buffer = new char[m_size + 1];
+        std::memcpy(m_buffer, string, m_size + 1);
+    }
+
+    // 拷贝构造函数：进行深拷贝
+    String(const String& other)
+        : m_size(other.m_size)
+    {
+        m_buffer = new char[m_size + 1];
+        std::memcpy(m_buffer, other.m_buffer, m_size + 1);
+    }
+
+    ~String()
+    {
+        delete[] m_buffer;
+    }
+};
+```
+
+这就是深拷贝 (Deep Copy)：  
+拷贝时不只是复制 `m_buffer` 这个地址，而是重新 `new` 一块同样大小的内存，再把原字符串内容复制过去。
+
+这样：
+
+```cpp
+String str = "Zio zhang";
+String str2 = str;
+```
+
+拷贝完成后：
+
+* `str.m_buffer` 指向第一块内存；
+* `str2.m_buffer` 指向第二块内存；
+* 两块内存里的内容一开始相同；
+* 之后修改 `str2`，不会影响 `str`。
+
+例如 `main.cpp` 里：
+
+```cpp
+String str = "Zio zhang";
+String str2 = str;
+
+str2[2] = 'X';
+
+PrintString(str);   // Zio zhang
+PrintString(str2);  // ZiX zhang
+```
+
+`str2[2] = 'X';` 能成立，是因为 `String` 重载了 `operator[]`，返回的是 `m_buffer[index]` 的引用：
+
+```cpp
+char& operator[](unsigned int index)
+{
+    return m_buffer[index];
+}
+```
+
+### 3. 拷贝构造 vs 拷贝赋值
+
+有一个容易忽略的区别：
+
+```cpp
+String a = "hello";
+String b = a;       // 拷贝构造：创建 b 的同时，用 a 初始化它
+
+String c = "world";
+c = a;              // 拷贝赋值：c 已经存在，把 a 的内容赋给 c
+```
+
+`String b = a;` 调用的是**拷贝构造函数**：
+
+```cpp
+String(const String& other);
+```
+
+`c = a;` 调用的是**拷贝赋值运算符**：
+
+```cpp
+String& operator=(const String& other);
+```
+
+如果只写了拷贝构造函数，没有写拷贝赋值运算符，那么 `c = a;` 仍然可能使用编译器默认生成的浅拷贝，导致同样的重复释放问题。
+
+所以 `main.cpp` 中补上了拷贝赋值运算符：
+
+```cpp
+String& operator=(const String& other)
+{
+    if (this == &other)
+        return *this;
+
+    char* buffer = new char[other.m_size + 1];
+    std::memcpy(buffer, other.m_buffer, other.m_size + 1);
+
+    delete[] m_buffer;
+    m_buffer = buffer;
+    m_size = other.m_size;
+
+    return *this;
+}
+```
+
+这里的关键点：
+
+* `if (this == &other)`：处理自己给自己赋值的情况，例如 `str = str;`；
+* 先 `new` 新内存并复制内容，再 `delete[] m_buffer`，避免复制过程中破坏原对象状态；
+* 最后返回 `*this`，让赋值表达式可以链式使用，例如 `a = b = c;`。
+
+### 4. Rule of Three：三件事通常一起出现
+
+如果一个类需要自己写析构函数，通常说明它在管理某种资源。这个时候就要同时考虑：
+
+1. 析构函数：对象销毁时怎么释放资源；
+2. 拷贝构造函数：新对象从旧对象创建时怎么复制资源；
+3. 拷贝赋值运算符：已有对象被另一个对象赋值时怎么处理资源。
+
+这就是 C++ 里常说的 **Rule of Three**：
+
+> [!IMPORTANT]
+> **如果你需要自己写析构函数，通常也要检查是否需要自己写拷贝构造函数和拷贝赋值运算符。**
+
+对于当前的 `String` 类来说：
+
+```cpp
+~String();                         // 释放 m_buffer
+String(const String& other);        // 深拷贝 m_buffer
+String& operator=(const String&);   // 深拷贝赋值 m_buffer
+```
+
+这三者是成套出现的，因为 `m_buffer` 指向的是堆内存，不能让多个对象随便共享同一个地址并各自释放。
+
+### 5. 小结：看到指针成员时先问所有权
+
+> [!TIP]
+> **判断深浅拷贝的核心问题**
+>
+> * 这个指针只是“指向外部对象”，还是“拥有一块需要自己释放的资源”？
+> * 如果只是观察/借用，浅拷贝可能可以接受；
+> * 如果对象负责 `delete` / `delete[]`，默认浅拷贝通常就是危险信号；
+> * 需要让每个对象独立拥有一份资源时，就写深拷贝；
+> * 不希望对象被拷贝时，可以直接禁用拷贝，例如 `String(const String&) = delete;`。
+
+在真实项目中，能用 `std::string`、`std::vector`、`std::unique_ptr` 这类标准库类型时，优先使用它们。它们已经把资源管理、拷贝、移动这些细节处理好了。自己手写 `new` / `delete` 更适合用来学习底层机制，实际业务代码中要尽量减少。
+
+---
+
 ## this 关键字与 this 指针 (this Keyword & this Pointer)
 
 在前面的例子里多次提到：
@@ -1847,6 +2103,337 @@ public:
 
 ---
 
+## typedef 与函数指针类型别名 (typedef & Function Pointer Alias)
+
+在学习 C 风格面向对象设计时，经常会看到这样的代码：
+
+```cpp
+typedef void (*led_on_fn)(LedBase*);
+typedef void (*led_off_fn)(LedBase*);
+typedef void (*led_brightness_fn)(LedBase*, int);
+```
+
+然后被用于结构体中：
+
+```cpp
+struct LedBase
+{
+    led_on_fn on;
+    led_off_fn off;
+    led_brightness_fn set_brightness;
+};
+```
+
+很多初学者会疑惑：
+
+> 普通 typedef 不是 `typedef int Age;` 这种形式吗？
+>
+> 为什么函数指针的 typedef 看起来完全不一样？
+
+---
+
+### 1. typedef 的本质
+
+很多人会把：
+
+```cpp
+typedef int Age;
+```
+
+理解成：
+
+```text
+Age = int
+```
+
+虽然这样记忆没有问题，但并不是 typedef 的真实语法。
+
+实际上：
+
+> [!IMPORTANT]
+> **typedef 的本质**
+>
+> `typedef` 不是简单的“左边替换右边”。
+>
+> 它的真正含义是：
+>
+> **把一个原本用于声明变量的语句，变成声明类型的语句。**
+
+例如：
+
+普通变量声明：
+
+```cpp
+int age;
+```
+
+读作：
+
+```text
+age 是一个 int 变量
+```
+
+加上 typedef：
+
+```cpp
+typedef int Age;
+```
+
+读作：
+
+```text
+Age 是一个 int 类型别名
+```
+
+此时：
+
+```cpp
+Age a = 18;
+```
+
+等价于：
+
+```cpp
+int a = 18;
+```
+
+---
+
+### 2. 理解函数指针声明
+
+先不要看 typedef。
+
+假设有一个函数：
+
+```cpp
+void LedOn(LedBase* me)
+{
+}
+```
+
+如果想定义一个指针来保存这个函数的地址：
+
+```cpp
+void (*on)(LedBase*);
+```
+
+读法：
+
+```text
+on 是一个函数指针
+
+它指向的函数：
+
+返回值：void
+参数：LedBase*
+```
+
+例如：
+
+```cpp
+on = LedOn;
+```
+
+调用：
+
+```cpp
+on(nullptr);
+```
+
+或者：
+
+```cpp
+(*on)(nullptr);
+```
+
+都可以。
+
+---
+
+### 3. typedef 到底替换了谁？
+
+这是最容易困惑的地方。
+
+观察下面代码：
+
+```cpp
+void (*on)(LedBase*);
+```
+
+这里：
+
+```text
+on
+↑
+变量名
+```
+
+如果加上 typedef：
+
+```cpp
+typedef void (*led_on_fn)(LedBase*);
+```
+
+实际上是把原来的变量名位置：
+
+```cpp
+void (*on)(LedBase*);
+```
+
+替换成：
+
+```cpp
+void (*led_on_fn)(LedBase*);
+```
+
+然后告诉编译器：
+
+```text
+led_on_fn 不再是变量名
+
+而是一个类型名
+```
+
+因此：
+
+```cpp
+typedef void (*led_on_fn)(LedBase*);
+```
+
+等价于声明了一种新的类型：
+
+```text
+led_on_fn
+
+↓
+
+void (*)(LedBase*)
+```
+
+---
+
+### 4. 为什么结构体里可以直接写 led_on_fn？
+
+定义完成后：
+
+```cpp
+typedef void (*led_on_fn)(LedBase*);
+```
+
+编译器已经认识了这个新类型。
+
+因此：
+
+```cpp
+led_on_fn on;
+```
+
+等价于：
+
+```cpp
+void (*on)(LedBase*);
+```
+
+所以：
+
+```cpp
+struct LedBase
+{
+    led_on_fn on;
+    led_off_fn off;
+    led_brightness_fn set_brightness;
+};
+```
+
+实际上编译器看到的是：
+
+```cpp
+struct LedBase
+{
+    void (*on)(LedBase*);
+    void (*off)(LedBase*);
+    void (*set_brightness)(LedBase*, int);
+};
+```
+
+---
+
+### 5. 一个记忆技巧
+
+看 typedef 时，可以先把 typedef 去掉。
+
+例如：
+
+```cpp
+typedef void (*led_on_fn)(LedBase*);
+```
+
+先去掉：
+
+```cpp
+void (*led_on_fn)(LedBase*);
+```
+
+读作：
+
+```text
+led_on_fn 是一个函数指针变量
+```
+
+然后再加回 typedef：
+
+```text
+led_on_fn 不再是变量
+
+而变成这种函数指针的类型名
+```
+
+于是：
+
+```cpp
+led_on_fn func;
+```
+
+就等价于：
+
+```cpp
+void (*func)(LedBase*);
+```
+
+---
+
+> [!TIP]
+> **嵌入式开发中的意义**
+>
+> `typedef + struct + 函数指针` 是很多驱动框架、RTOS、汽车电子代码中模拟面向对象的重要手段。
+>
+> 例如：
+>
+> ```cpp
+> struct LedBase
+> {
+>     led_on_fn on;
+>     led_off_fn off;
+> };
+> ```
+>
+> 不同硬件平台只需要提供不同的函数实现：
+>
+> ```cpp
+> led.on = gpio_led_on;
+> led.off = gpio_led_off;
+> ```
+>
+> 上层代码统一调用：
+>
+> ```cpp
+> led.on(&led);
+> led.off(&led);
+> ```
+>
+> 从而实现类似 C++ 虚函数（Virtual Function）的效果。
+
+---
 ## 类的继承 (Inheritance)
 
 这一部分用 `Entity` / `Player` 的例子，理解几件事：
