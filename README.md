@@ -3514,6 +3514,491 @@ int main()
   * 这个类真正提供给外部用的是什么；
   * 哪些只是内部实现细节，随时可能会变。
 
+---
+
+## CMake 接入第三方库 (Third-party Libraries)
+
+这一部分结合当前项目中 GLFW 的接入方式，总结 C++ 项目里添加第三方库时最核心的几个问题：
+
+1. 第三方库放在哪里；
+2. CMake 怎么知道这个库；
+3. 编译器怎么找到头文件；
+4. 链接器怎么找到函数实现；
+5. 如果第三方库没有 `CMakeLists.txt`，应该怎么处理。
+
+### 1. 第三方库放在哪里？
+
+当前项目把 GLFW 放在：
+
+```text
+third_party/
+  glfw-3.4/
+```
+
+这个结构是合理的。`third_party` 的含义就是“第三方依赖”，以后如果再添加别的库，也可以统一放在这里：
+
+```text
+third_party/
+  glfw-3.4/
+  glad/
+  glm/
+```
+
+这样项目自己的代码和外部依赖就分开了：
+
+```text
+src/          自己的源文件
+include/      自己的头文件
+third_party/  第三方库源码或头文件
+```
+
+> [!TIP]
+> `third_party`、`vendor`、`external` 都是常见命名。关键不是名字本身，而是把“自己写的代码”和“外部拿来的代码”分清楚。
+
+### 2. GLFW 为什么可以直接 add_subdirectory？
+
+GLFW 的源码目录里有自己的：
+
+```text
+third_party/glfw-3.4/CMakeLists.txt
+```
+
+所以我们可以在项目根目录的 `CMakeLists.txt` 里写：
+
+```cmake
+add_subdirectory(third_party/glfw-3.4)
+```
+
+这句的意思是：
+
+```text
+把 third_party/glfw-3.4 这个子项目加入当前 CMake 工程。
+```
+
+CMake 会进入 GLFW 的目录，读取它自己的 `CMakeLists.txt`，然后生成一个可以链接的库目标：
+
+```cmake
+glfw
+```
+
+然后你的程序再链接它：
+
+```cmake
+target_link_libraries(Project1 PRIVATE
+    glfw
+)
+```
+
+这两句是源码方式接入 GLFW 的核心：
+
+```cmake
+add_subdirectory(third_party/glfw-3.4)
+target_link_libraries(Project1 PRIVATE glfw)
+```
+
+前一句是“把 GLFW 加进项目”，后一句是“让我的程序使用 GLFW”。
+
+### 3. 为什么要关闭 GLFW 的 docs/tests/examples？
+
+当前项目里有这些配置：
+
+```cmake
+set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
+```
+
+意思是：
+
+```text
+我只想使用 GLFW 库本身，不需要编译它自带的文档、测试、示例和安装目标。
+```
+
+这样构建会更干净，也更快。对于学习项目来说，通常只需要链接 GLFW 本体。
+
+### 4. 如果第三方库没有 CMakeLists.txt 怎么办？
+
+如果第三方库没有 `CMakeLists.txt`，就不能直接用：
+
+```cmake
+add_subdirectory(third_party/xxx)
+```
+
+因为 CMake 不知道这个库应该怎么编译。这时要看这个库的形态。
+
+### 5. 情况一：只有头文件的库
+
+有些库是 header-only，只包含 `.h` / `.hpp`，没有 `.cpp` 需要编译。例如：
+
+```text
+third_party/
+  glm/
+    glm/
+      vec3.hpp
+      mat4x4.hpp
+```
+
+这种库不需要 `add_library`，只需要让编译器找到头文件：
+
+```cmake
+target_include_directories(Project1 PRIVATE
+    ${PROJECT_SOURCE_DIR}/third_party/glm
+)
+```
+
+代码里就可以：
+
+```cpp
+#include <glm/glm.hpp>
+```
+
+> [!IMPORTANT]
+> **只有头文件的库，本质上不需要链接。**
+>
+> 因为所有实现都在头文件里，编译器在编译你的 `.cpp` 时就能看到实现。
+
+### 6. 情况二：有源码，但没有 CMakeLists.txt
+
+如果第三方库长这样：
+
+```text
+third_party/
+  mylib/
+    include/
+      mylib.h
+    src/
+      mylib.cpp
+```
+
+说明它有源码，只是没有提供 CMake 构建脚本。这个时候可以在自己的 `CMakeLists.txt` 里手动定义一个库：
+
+```cmake
+add_library(mylib
+    third_party/mylib/src/mylib.cpp
+)
+
+target_include_directories(mylib PUBLIC
+    ${PROJECT_SOURCE_DIR}/third_party/mylib/include
+)
+
+target_link_libraries(Project1 PRIVATE
+    mylib
+)
+```
+
+这里的意思是：
+
+* `add_library(mylib ...)`：告诉 CMake 这些源码文件组成一个叫 `mylib` 的库；
+* `target_include_directories(mylib PUBLIC ...)`：告诉使用 `mylib` 的目标也需要这些头文件路径；
+* `target_link_libraries(Project1 PRIVATE mylib)`：让你的程序链接这个库。
+
+### 7. 情况三：已经有预编译库
+
+有些第三方库下载下来不是源码，而是已经编译好的文件：
+
+```text
+third_party/
+  glfw/
+    include/
+      GLFW/glfw3.h
+    lib/
+      libglfw3.a
+```
+
+这种情况下，不需要再编译 GLFW，只需要：
+
+1. 让编译器找到头文件；
+2. 让链接器找到 `.a` / `.lib` 文件。
+
+示例：
+
+```cmake
+target_include_directories(Project1 PRIVATE
+    ${PROJECT_SOURCE_DIR}/third_party/glfw/include
+)
+
+target_link_libraries(Project1 PRIVATE
+    ${PROJECT_SOURCE_DIR}/third_party/glfw/lib/libglfw3.a
+)
+```
+
+如果是 Windows 下 MSVC 常见的 `.lib`：
+
+```cmake
+target_link_libraries(Project1 PRIVATE
+    ${PROJECT_SOURCE_DIR}/third_party/glfw/lib/glfw3.lib
+)
+```
+
+如果还有 `.dll`，运行时也要保证 `.dll` 在 `.exe` 同目录，或者在系统 `PATH` 里。否则编译链接可能都成功，但运行时会提示找不到 DLL。
+
+### 8. 情况四：第三方库使用别的构建系统
+
+有些库没有 CMake，但可能有：
+
+```text
+Makefile
+configure
+meson.build
+premake5.lua
+build.bat
+```
+
+这种情况下通常分两步：
+
+```text
+先用它自己的构建方式编译出库文件
+↓
+再在你的 CMake 项目里按“预编译库”方式 include + link
+```
+
+也就是：
+
+```text
+第三方库自己构建
+得到 .a / .lib / .dll
+你的项目链接这些产物
+```
+
+### 9. 判断方式总结
+
+> [!IMPORTANT]
+> **看到一个第三方库时，先判断它是哪种形态**
+>
+> | 第三方库形态 | CMake 接入方式 |
+> | --- | --- |
+> | 有 `CMakeLists.txt` | `add_subdirectory(...)` |
+> | 只有头文件 | `target_include_directories(...)` |
+> | 有 `.cpp` / `.c` 但没有 CMake | 自己 `add_library(...)` |
+> | 已经有 `.a` / `.lib` | include 头文件 + link 具体库文件 |
+> | 用 Makefile / Meson / Premake | 先单独构建，再按预编译库链接 |
+
+一句话记忆：
+
+```text
+头文件让编译器找到；
+库文件让链接器找到；
+源码库让 CMake 知道怎么编译。
+```
+
+GLFW 这次比较简单，是因为它自己带 `CMakeLists.txt`，所以可以直接：
+
+```cmake
+add_subdirectory(third_party/glfw-3.4)
+target_link_libraries(Project1 PRIVATE glfw)
+```
+
+如果以后遇到没有 `CMakeLists.txt` 的库，就按上面的表先判断它属于哪一种，再选择对应的接入方式。
+
+---
+
+## 静态链接与动态链接 (Static Linking & Dynamic Linking)
+
+这一部分继续结合当前项目里的 GLFW，总结 C++ 项目中经常遇到的两个概念：**静态链接**和**动态链接**。
+
+先说当前结论：
+
+> [!IMPORTANT]
+> **当前项目里的 GLFW 是静态链接。**
+>
+> 构建产物中生成的是：
+>
+> ```text
+> third_party/glfw-3.4/src/libglfw3.a
+> ```
+>
+> `.a` 是 MinGW / GCC 环境下常见的静态库文件。
+
+### 1. 什么是静态链接？
+
+静态链接 (Static Linking) 的意思是：**在链接阶段，把库里的代码打包进最终的可执行文件里。**
+
+当前项目可以粗略理解成：
+
+```text
+main.cpp / Log.cpp
+        +
+libglfw3.a
+        ↓
+Project1.exe
+```
+
+也就是说，`Project1.exe` 在生成时，就已经把需要的 GLFW 代码链接进去了。
+
+所以运行时通常不需要额外带一个：
+
+```text
+glfw3.dll
+```
+
+### 2. 静态链接的优缺点
+
+> [!TIP]
+> **静态链接的优点**
+>
+> * 部署简单：通常一个 `.exe` 就能跑，不容易出现“找不到 DLL”的问题。
+> * 版本更稳定：程序链接时用的是哪份库，最终 exe 里就包含哪份库代码。
+> * 对学习项目更省心：不用处理 DLL 放在哪里、PATH 怎么配置。
+
+> [!WARNING]
+> **静态链接的缺点**
+>
+> * 可执行文件体积可能更大。
+> * 多个程序都使用同一个库时，每个程序都会各自带一份库代码。
+> * 如果第三方库更新了，需要重新链接生成新的 `.exe`。
+
+简单说：静态链接更像“把依赖打包进自己身体里”。
+
+### 3. 什么是动态链接？
+
+动态链接 (Dynamic Linking) 的意思是：**可执行文件不把库代码完整打进去，而是在运行时加载外部动态库。**
+
+在 Windows 上通常是：
+
+```text
+Project1.exe
+glfw3.dll
+```
+
+`Project1.exe` 运行时会去找 `glfw3.dll`，然后调用 DLL 里的 GLFW 函数。
+
+如果找不到 DLL，就可能出现类似：
+
+```text
+The code execution cannot proceed because glfw3.dll was not found
+```
+
+或者中文环境里的“找不到 glfw3.dll”。
+
+### 4. 动态链接的优缺点
+
+> [!TIP]
+> **动态链接的优点**
+>
+> * `.exe` 本身体积更小。
+> * 多个程序可以共享同一个 DLL。
+> * 某些情况下可以只替换 DLL 来更新库，不必重新生成所有 exe。
+
+> [!WARNING]
+> **动态链接的缺点**
+>
+> * 部署更麻烦：需要把 DLL 放到 `.exe` 同目录，或者放到系统 `PATH` 能找到的位置。
+> * 容易遇到运行时错误：编译链接都通过了，但运行时找不到 DLL。
+> * DLL 版本不匹配时，可能出现更隐蔽的问题。
+
+简单说：动态链接更像“运行时去外面借依赖”。
+
+### 5. 常见文件后缀怎么判断？
+
+在当前 MinGW / GCC 环境中，常见情况是：
+
+| 文件 | 含义 |
+| --- | --- |
+| `.a` | 静态库 |
+| `.dll` | 动态库 |
+| `.dll.a` | DLL 的导入库，用来链接到 DLL |
+
+在 MSVC / Visual Studio 环境中，常见情况是：
+
+| 文件 | 含义 |
+| --- | --- |
+| `.lib` | 可能是静态库，也可能是 DLL 的导入库 |
+| `.dll` | 动态库 |
+
+> [!NOTE]
+> Windows 下 `.lib` 不能只看后缀判断是静态库还是动态库导入库，要看它是怎么生成的。
+
+### 6. 为什么当前 GLFW 是静态链接？
+
+GLFW 自己的 `CMakeLists.txt` 中默认配置是：
+
+```cmake
+option(BUILD_SHARED_LIBS "Build shared libraries" OFF)
+```
+
+`BUILD_SHARED_LIBS` 是 CMake 里常见的开关：
+
+* `OFF`：默认构建静态库；
+* `ON`：默认构建动态库。
+
+当前项目没有把它改成 `ON`，所以 GLFW 默认生成静态库：
+
+```text
+libglfw3.a
+```
+
+然后项目里通过：
+
+```cmake
+target_link_libraries(Project1 PRIVATE
+    glfw
+)
+```
+
+把这个静态库链接进 `Project1.exe`。
+
+### 7. 如果想改成动态链接怎么办？
+
+如果以后想让 GLFW 构建成动态库，可以在：
+
+```cmake
+add_subdirectory(third_party/glfw-3.4)
+```
+
+之前添加：
+
+```cmake
+set(BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
+```
+
+大致变成：
+
+```cmake
+set(BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
+
+add_subdirectory(third_party/glfw-3.4)
+
+target_link_libraries(Project1 PRIVATE
+    glfw
+)
+```
+
+这样 GLFW 就会倾向于生成动态库。但动态链接后，运行时就要注意 DLL 的位置。
+
+对于当前学习项目，我更推荐先保持静态链接：
+
+```text
+少处理 DLL 路径问题，先把窗口、输入、OpenGL 上下文这些核心概念学清楚。
+```
+
+### 8. 小结：静态链接 vs 动态链接
+
+| 对比项 | 静态链接 | 动态链接 |
+| --- | --- | --- |
+| 库代码放在哪里 | 打进 exe | 放在外部 DLL |
+| 运行时是否依赖 DLL | 通常不依赖 | 依赖 |
+| 部署难度 | 简单 | 更麻烦 |
+| exe 体积 | 较大 | 较小 |
+| 更新库 | 需要重新链接 exe | 某些情况下替换 DLL 即可 |
+| 当前项目 GLFW | ✅ 是 | ❌ 不是 |
+
+> [!IMPORTANT]
+> **判断当前项目的关键证据**
+>
+> 构建产物里是：
+>
+> ```text
+> libglfw3.a
+> ```
+>
+> 不是：
+>
+> ```text
+> glfw3.dll
+> ```
+>
+> 所以当前 GLFW 是静态链接。
 
 
 
