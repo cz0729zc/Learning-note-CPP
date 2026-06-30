@@ -936,6 +936,240 @@ void Function(std::vector<Vertex> vertices)
 
 ---
 
+## 优化 std::vector 的使用 (Optimizing std::vector)
+
+这一部分结合教程第 48p 和 `main.cpp` 中的示例，总结 `std::vector` 使用时一个很常见的性能点：**减少不必要的拷贝**。
+
+前面已经知道，`std::vector` 是动态数组，可以不断 `push_back` 新元素。但“能动态增长”背后有一个代价：当当前容量不够时，`vector` 需要重新申请更大的连续内存，并把已有元素搬过去。
+
+### 1. 用拷贝构造函数观察复制次数
+
+当前代码里有一个 `Vertex` 类：
+
+```cpp
+class Vertex
+{
+public:
+    float x, y, z;
+
+    Vertex(float x, float y, float z)
+        : x(x), y(y), z(z)
+    {
+    }
+
+    Vertex(const Vertex& vertex)
+        : x(vertex.x), y(vertex.y), z(vertex.z)
+    {
+        std::cout << "Copied!" << std::endl;
+    }
+};
+```
+
+这里故意写了一个拷贝构造函数：
+
+```cpp
+Vertex(const Vertex& vertex)
+```
+
+每当 `Vertex` 被拷贝时，就打印：
+
+```text
+Copied!
+```
+
+这不是业务逻辑，而是一个观察工具：用来看到 `std::vector` 在插入和扩容时到底发生了多少次复制。
+
+### 2. 为什么 push_back 可能产生很多复制？
+
+如果这样写：
+
+```cpp
+std::vector<Vertex> vertices;
+
+vertices.push_back(Vertex(1, 2, 3));
+vertices.push_back(Vertex(4, 5, 6));
+vertices.push_back(Vertex(7, 8, 9));
+```
+
+这里有两类复制：
+
+1. `Vertex(1, 2, 3)` 先在当前作用域里构造一个临时对象，再复制进 `vector`；
+2. 当 `vector` 容量不够时，会重新分配更大的内存，并把已有元素复制到新内存里。
+
+所以这段代码可能会看到多次：
+
+```text
+Copied!
+```
+
+常见情况下，插入 3 个元素可能出现 6 次复制：
+
+```text
+第 1 次插入：临时 Vertex 复制进 vector
+第 2 次插入：旧元素扩容复制 + 新临时 Vertex 复制进 vector
+第 3 次插入：两个旧元素扩容复制 + 新临时 Vertex 复制进 vector
+```
+
+也就是：
+
+```text
+1 + 2 + 3 = 6
+```
+
+> [!WARNING]
+> **具体扩容策略不是 C++ 标准强制规定的**
+>
+> 不同编译器和标准库实现可能有不同的容量增长策略。这里关注的不是“永远一定是 6 次”，而是理解两个来源：插入临时对象会复制，容量不够扩容也会复制已有元素。
+
+### 3. 优化方式一：reserve 提前预留容量
+
+如果你已经大概知道会放多少个元素，可以先调用：
+
+```cpp
+vertices.reserve(3);
+```
+
+`reserve` 的意思是：**提前给 vector 预留至少能放 3 个元素的内存容量**。
+
+完整写法：
+
+```cpp
+std::vector<Vertex> vertices;
+vertices.reserve(3);
+
+vertices.push_back(Vertex(1, 2, 3));
+vertices.push_back(Vertex(4, 5, 6));
+vertices.push_back(Vertex(7, 8, 9));
+```
+
+这样做可以避免插入过程中反复扩容。也就是说，原本因为容量不够而产生的“搬家复制”可以减少。
+
+> [!IMPORTANT]
+> **reserve 改的是 capacity，不是 size**
+>
+> `reserve(3)` 只是预留空间，不会真的创建 3 个 `Vertex`。
+>
+> 所以调用后：
+>
+> ```cpp
+> vertices.size();     // 仍然是 0
+> vertices.capacity(); // 至少是 3
+> ```
+>
+> 之后再 `push_back` / `emplace_back`，元素才会真正进入 vector。
+
+### 4. 优化方式二：emplace_back 原地构造
+
+当前 `main.cpp` 使用的是：
+
+```cpp
+vertices.emplace_back(1, 2, 3);
+vertices.emplace_back(4, 5, 6);
+vertices.emplace_back(7, 8, 9);
+```
+
+`emplace_back` 的作用是：**直接在 vector 内部的存储空间里构造对象**。
+
+它和 `push_back(Vertex(1, 2, 3))` 的区别是：
+
+```cpp
+vertices.push_back(Vertex(1, 2, 3));
+```
+
+这句更像：
+
+```text
+先在外面构造一个 Vertex 临时对象
+再把这个临时对象放进 vector
+```
+
+而：
+
+```cpp
+vertices.emplace_back(1, 2, 3);
+```
+
+更像：
+
+```text
+把 1, 2, 3 直接交给 vector
+让 vector 在自己的内存里直接构造 Vertex
+```
+
+这样可以减少“临时对象复制进 vector”这一类开销。
+
+### 5. reserve + emplace_back：两类复制都尽量避免
+
+如果把两个优化结合起来：
+
+```cpp
+std::vector<Vertex> vertices;
+vertices.reserve(3);
+
+vertices.emplace_back(1, 2, 3);
+vertices.emplace_back(4, 5, 6);
+vertices.emplace_back(7, 8, 9);
+```
+
+效果是：
+
+* `reserve(3)`：提前准备足够容量，避免插入 3 个元素时反复扩容；
+* `emplace_back(...)`：直接在 vector 内部构造元素，避免先构造临时对象再复制进去。
+
+对于这个例子来说，这是最直接的优化版本。
+
+> [!TIP]
+> **一个简单经验**
+>
+> * 如果你知道大概会插入多少个元素，先 `reserve(n)`；
+> * 如果你要在 vector 末尾构造一个新对象，优先考虑 `emplace_back(...)`；
+> * 如果已经有一个现成对象要放进去，用 `push_back(obj)` 也很自然。
+
+### 6. size 和 capacity 的区别
+
+理解 `reserve` 时，一定要区分两个概念：
+
+```cpp
+vertices.size();     // 当前真的有多少个元素
+vertices.capacity(); // 当前已经预留的容量，最多能放多少个元素而不重新分配
+```
+
+例如：
+
+```cpp
+std::vector<Vertex> vertices;
+vertices.reserve(3);
+```
+
+此时：
+
+```text
+size     = 0
+capacity >= 3
+```
+
+因为还没有真正放入任何 `Vertex`，所以 `size()` 仍然是 0。`reserve` 只是提前把“房间”准备好，不是把“人”放进去。
+
+### 7. 小结：优化 vector 时先看拷贝来源
+
+> [!IMPORTANT]
+> **`std::vector` 插入元素时的两个主要开销**
+>
+> * 插入方式导致的拷贝：例如先构造临时对象，再 `push_back` 进容器；
+> * 扩容导致的拷贝：容量不够时，已有元素需要搬到新内存。
+
+对应优化：
+
+| 问题 | 优化方式 | 作用 |
+| --- | --- | --- |
+| 不知道容量，反复扩容 | `reserve(n)` | 提前预留容量，减少重新分配 |
+| 先构造临时对象再放入 vector | `emplace_back(args...)` | 在容器内部直接构造元素 |
+| 已有对象需要加入 vector | `push_back(obj)` | 表达清晰，适合已有对象 |
+
+从学习角度看，给 `Vertex` 写一个打印 `Copied!` 的拷贝构造函数，是为了把原本隐藏在 `vector` 内部的复制行为显示出来。真正写业务代码时，不需要为了观察复制次数而随便打印，但要保留这个意识：**动态数组很好用，但插入对象时仍然要注意构造、拷贝和扩容成本。**
+
+---
+
 ## const 关键字与只读语义 (const Keyword & Read-Only Semantics)
 
 这一部分结合教程第 34p 和 `main.cpp` 中的代码，总结 C++ 里 `const` 关键字的几个典型用法：
