@@ -1,70 +1,43 @@
 #include <iostream>
+#include <string>
+#include <vector>
 
-class Entity
+class Vertex
 {
 public:
-    void Print() const
-    {
-        std::cout << "Entity" << std::endl;
-    }
+    float x, y, z;
 };
 
-class ScopedPtr
+std::ostream& operator<<(std::ostream& os, const Vertex& v)
 {
-private:
-    Entity* m_Obj;
-
-public:
-    ScopedPtr(Entity* entity)
-        : m_Obj(entity)
-    {
-
-    }
-
-    ScopedPtr(const ScopedPtr&) = delete;
-    ScopedPtr& operator=(const ScopedPtr&) = delete;
-
-    ~ScopedPtr()
-    {
-        delete m_Obj;
-    }
-
-    Entity* GetObject()
-    {
-        return m_Obj;
-    }
-
-    const Entity* GetObject() const
-    {
-        return m_Obj;
-    }
-
-    Entity* operator->()
-    {
-        return m_Obj;
-    }
-
-    const Entity* operator->() const
-    {
-        return m_Obj;
-    }
-};
+    os << "Vertex(" << v.x << ", " << v.y << ", " << v.z << ")";
+    return os;
+}
 
 int main()
 {
-    const ScopedPtr entity = new Entity();
-    entity->Print();
+    std::vector<Vertex> vertices;
+    std::vector<int> numbers;
+
+    vertices.push_back({0, 1, 2});
+    vertices.push_back({3, 4, 5});
+
+    for (const Vertex& v: vertices)
+    {
+        std::cout << v << std::endl;
+    }
+        /* 重置数组大小为0 */
+    // vertices.clear();
+
+    // for (const Vertex& v: vertices)
+    // {
+    //     std::cout << v << std::endl;
+    // }
+        /* 删除第二个元素 */
+    vertices.erase(vertices.begin() + 1);
+
+    for (const Vertex& v: vertices)
+    {
+        std::cout << v << std::endl;
+    }
 }
-// int main()
-// {
-//     Entity entity;
-//     entity.Print();
-
-//     Entity* ptr = &entity;
-
-//     //这里的箭头实际作用是解引用指针并访问成员函数，等价于(*ptr).Print()，所以两者的效果是一样的。
-//     ptr->Print();
-//     (*ptr).Print();
-
-//     return 0;
-// }

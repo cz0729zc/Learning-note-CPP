@@ -643,6 +643,299 @@ void DemoStdArray()
 
 ---
 
+## 动态数组 std::vector (Dynamic Arrays)
+
+这一部分结合教程第 46p 和 `main.cpp` 中的示例，总结 C++ 标准库里的动态数组：`std::vector`。
+
+前面学过的原生数组和 `std::array` 都属于**定长数组**：大小在创建时就确定了，之后不能随便增长。`std::vector` 则是一个**动态数组 (Dynamic Array)**：它内部管理一块连续内存，可以在运行时添加、删除元素。
+
+> [!IMPORTANT]
+> **`std::vector` 不是链表，它的元素仍然是连续存储的。**
+>
+> 它像数组一样支持下标访问，也像容器一样可以 `push_back`、`erase`、`clear`。这也是它在 C++ 里非常常用的原因。
+
+### 1. 创建一个 vector
+
+`main.cpp` 中先定义了一个简单的顶点类型：
+
+```cpp
+class Vertex
+{
+public:
+    float x, y, z;
+};
+```
+
+然后创建一个存放 `Vertex` 的动态数组：
+
+```cpp
+std::vector<Vertex> vertices;
+```
+
+这里的意思是：
+
+* `std::vector`：标准库提供的动态数组模板；
+* `<Vertex>`：这个数组里存放的元素类型是 `Vertex`；
+* `vertices`：变量名。
+
+所以整句可以读成：
+
+```text
+创建一个名叫 vertices 的动态数组，里面每个元素都是 Vertex。
+```
+
+如果要使用 `std::vector`，需要包含头文件：
+
+```cpp
+#include <vector>
+```
+
+### 2. push_back：往尾部添加元素
+
+当前代码中：
+
+```cpp
+vertices.push_back({0, 1, 2});
+vertices.push_back({3, 4, 5});
+```
+
+`push_back` 的作用是：**把一个新元素添加到 vector 的末尾**。
+
+执行完这两句后，`vertices` 中有两个元素：
+
+```text
+vertices[0] = Vertex(0, 1, 2)
+vertices[1] = Vertex(3, 4, 5)
+```
+
+因为 `Vertex` 里有三个 `float` 成员：
+
+```cpp
+float x, y, z;
+```
+
+所以 `{0, 1, 2}` 可以用来构造一个 `Vertex` 对象。
+
+> [!TIP]
+> **push_back 的直觉理解**
+>
+> `push_back(value)` 就是“把 value 推到数组最后面”。
+>
+> 如果当前容量不够，`vector` 会自己申请一块更大的内存，把原来的元素搬过去，再把新元素放进去。这就是它能动态增长的原因。
+
+### 3. 遍历 vector：范围 for 循环
+
+代码里使用了范围 `for` 循环：
+
+```cpp
+for (const Vertex& v : vertices)
+{
+    std::cout << v << std::endl;
+}
+```
+
+意思是：
+
+```text
+依次取出 vertices 里的每一个 Vertex，用 v 表示当前元素，然后执行循环体。
+```
+
+这里推荐使用：
+
+```cpp
+const Vertex& v
+```
+
+原因是：
+
+* `&`：引用，避免每次循环都拷贝一个 `Vertex`；
+* `const`：只读，表示循环里不会修改这个元素。
+
+如果写成：
+
+```cpp
+for (Vertex v : vertices)
+```
+
+也能工作，但每次循环都会把元素拷贝一份。对于 `Vertex` 这种小对象影响不大，但如果对象很大，拷贝成本就会上来。
+
+### 4. 让 cout 能直接输出 Vertex
+
+代码中有这一段：
+
+```cpp
+std::ostream& operator<<(std::ostream& os, const Vertex& v)
+{
+    os << "Vertex(" << v.x << ", " << v.y << ", " << v.z << ")";
+    return os;
+}
+```
+
+它重载了 `operator<<`，让下面这种写法成立：
+
+```cpp
+std::cout << v << std::endl;
+```
+
+如果没有这个重载，`std::cout` 不知道一个 `Vertex` 应该怎么打印。重载后，输出结果类似：
+
+```text
+Vertex(0, 1, 2)
+Vertex(3, 4, 5)
+```
+
+这里参数写成：
+
+```cpp
+const Vertex& v
+```
+
+同样是为了避免拷贝，并且保证打印函数不会修改 `Vertex`。
+
+### 5. clear：清空所有元素
+
+代码里注释掉了这一段：
+
+```cpp
+vertices.clear();
+```
+
+`clear()` 的作用是：**删除 vector 里的所有元素，让 size 变成 0**。
+
+注意它不是把每个元素“重置成 0”，而是直接把元素移除：
+
+```cpp
+vertices.clear();
+```
+
+执行之后：
+
+```cpp
+vertices.size(); // 0
+```
+
+所以这句注释：
+
+```cpp
+/* 重置数组大小为0 */
+```
+
+可以理解为“清空数组，让当前元素数量变成 0”。
+
+### 6. erase：删除指定位置的元素
+
+当前代码中：
+
+```cpp
+vertices.erase(vertices.begin() + 1);
+```
+
+这句的作用是：**删除第二个元素**。
+
+拆开看：
+
+```cpp
+vertices.begin()
+```
+
+表示指向第一个元素的位置。
+
+```cpp
+vertices.begin() + 1
+```
+
+表示向后移动一格，也就是第二个元素的位置。
+
+所以：
+
+```cpp
+vertices.erase(vertices.begin() + 1);
+```
+
+就是删除 `vertices[1]`。
+
+删除之前：
+
+```text
+Vertex(0, 1, 2)
+Vertex(3, 4, 5)
+```
+
+删除之后只剩：
+
+```text
+Vertex(0, 1, 2)
+```
+
+> [!WARNING]
+> **erase 不是 O(1) 的“直接抹掉”**
+>
+> `std::vector` 的元素是连续存储的。删除中间元素后，后面的元素需要往前移动，填补空出来的位置。
+>
+> 所以频繁删除中间元素时，`vector` 可能不是最合适的容器；但对于大多数需要连续数组、随机访问、尾部追加的场景，`vector` 仍然是首选。
+
+### 7. 传给函数时优先用 const 引用
+
+如果只是把 `vector` 交给函数读取，推荐这样写：
+
+```cpp
+void Function(const std::vector<Vertex>& vertices)
+{
+    for (const Vertex& v : vertices)
+    {
+        std::cout << v << std::endl;
+    }
+}
+```
+
+调用：
+
+```cpp
+Function(vertices);
+```
+
+这里的重点是参数类型：
+
+```cpp
+const std::vector<Vertex>& vertices
+```
+
+含义是：
+
+* `&`：引用传递，不拷贝整个 vector；
+* `const`：函数只读取，不修改传入的 vector。
+
+如果写成：
+
+```cpp
+void Function(std::vector<Vertex> vertices)
+```
+
+每次调用都会拷贝整个动态数组，元素越多开销越大。
+
+### 8. 小结：什么时候用 vector？
+
+> [!IMPORTANT]
+> **`std::vector` 的使用场景**
+>
+> * 需要一个数组，但大小在运行时才知道；
+> * 需要不断往尾部添加元素；
+> * 需要像数组一样通过下标快速访问元素；
+> * 需要和标准库算法配合使用；
+> * 不想自己手写 `new[]` / `delete[]` 管理动态内存。
+
+简单对比：
+
+| 类型 | 大小是否可变 | 内存是否连续 | 常见用途 |
+| --- | --- | --- | --- |
+| 原生数组 `T arr[N]` | 固定 | 连续 | 底层、简单局部数组 |
+| `std::array<T, N>` | 固定 | 连续 | 更安全的定长数组 |
+| `std::vector<T>` | 可变 | 连续 | 最常用的动态数组 |
+
+实际项目中，如果你想要“一个会变长的数组”，优先考虑 `std::vector`。它帮你管理内存增长和释放，比手写动态数组更安全，也更符合现代 C++ 的写法。
+
+---
+
 ## const 关键字与只读语义 (const Keyword & Read-Only Semantics)
 
 这一部分结合教程第 34p 和 `main.cpp` 中的代码，总结 C++ 里 `const` 关键字的几个典型用法：
