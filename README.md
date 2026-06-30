@@ -2103,6 +2103,216 @@ public:
 
 ---
 
+## 箭头运算符 (Arrow Operator)
+
+这一部分结合教程第 45p 和 `main.cpp` 中的 `ScopedPtr` 例子，总结 C++ 里的箭头运算符 `->`：
+
+1. 普通对象访问成员用 `.`；
+2. 指针访问成员用 `->`；
+3. `->` 本质上可以理解为“先解引用，再访问成员”；
+4. 自定义类型也可以重载 `operator->`，让它表现得像指针一样。
+
+### 1. 对象用点，指针用箭头
+
+先看最基础的写法：
+
+```cpp
+class Entity
+{
+public:
+    void Print() const
+    {
+        std::cout << "Entity" << std::endl;
+    }
+};
+
+int main()
+{
+    Entity entity;
+    entity.Print(); // entity 是对象本身，用 .
+
+    Entity* ptr = &entity;
+    ptr->Print();   // ptr 是指针，用 ->
+    (*ptr).Print(); // 等价写法：先解引用，再访问成员
+}
+```
+
+这两句是等价的：
+
+```cpp
+ptr->Print();
+(*ptr).Print();
+```
+
+区别只是语法上更简洁：
+
+* `ptr` 是一个指针；
+* `*ptr` 得到这个指针指向的对象；
+* `(*ptr).Print()` 表示“对这个对象调用 `Print()`”；
+* `ptr->Print()` 是上面这套写法的简写。
+
+> [!IMPORTANT]
+> **箭头运算符的核心理解**
+>
+> `a->b` 可以先粗略理解成 `(*a).b`。
+>
+> 也就是：`a` 是一个指针，先通过 `*a` 找到它指向的对象，再通过 `.` 访问这个对象的成员。
+
+### 2. 为什么不能直接写 (*ptr).Print 之外的形式？
+
+因为 `.` 的优先级比 `*` 高，如果写成：
+
+```cpp
+*ptr.Print();
+```
+
+编译器会先尝试理解成：
+
+```cpp
+*(ptr.Print());
+```
+
+这就变成了“先对 `ptr` 调用 `Print()`”，但 `ptr` 是指针，不是对象本身，所以不符合我们的意图。
+
+因此，如果不用 `->`，就必须写括号：
+
+```cpp
+(*ptr).Print();
+```
+
+`->` 的价值就在这里：它把“解引用 + 访问成员”合成了一个更自然的写法。
+
+### 3. 重载 operator->：让类表现得像指针
+
+`main.cpp` 中的 `ScopedPtr` 是一个简化版智能指针。它内部保存一个 `Entity*`，析构时自动释放：
+
+```cpp
+class ScopedPtr
+{
+private:
+    Entity* m_Obj;
+
+public:
+    ScopedPtr(Entity* entity)
+        : m_Obj(entity)
+    {
+    }
+
+    ScopedPtr(const ScopedPtr&) = delete;
+    ScopedPtr& operator=(const ScopedPtr&) = delete;
+
+    ~ScopedPtr()
+    {
+        delete m_Obj;
+    }
+
+    Entity* operator->()
+    {
+        return m_Obj;
+    }
+
+    const Entity* operator->() const
+    {
+        return m_Obj;
+    }
+};
+```
+
+有了 `operator->` 之后，可以这样使用：
+
+```cpp
+int main()
+{
+    const ScopedPtr entity = new Entity();
+    entity->Print();
+}
+```
+
+虽然 `entity` 本身不是 `Entity*`，而是一个 `ScopedPtr` 对象，但它重载了 `operator->`。所以编译器看到：
+
+```cpp
+entity->Print();
+```
+
+会先调用：
+
+```cpp
+entity.operator->()
+```
+
+拿到内部真正的 `Entity*`，再继续访问 `Print()`。
+
+可以理解成：
+
+```cpp
+entity.operator->()->Print();
+```
+
+> [!TIP]
+> **智能指针为什么能用 ->**
+>
+> `std::unique_ptr<Entity>`、`std::shared_ptr<Entity>` 也能写 `ptr->Print()`，原因和这里一样：它们重载了 `operator->`，把访问转发给内部管理的原始指针。
+
+### 4. const 版本为什么需要单独写？
+
+`main.cpp` 里写的是：
+
+```cpp
+const ScopedPtr entity = new Entity();
+entity->Print();
+```
+
+因为 `entity` 是 `const ScopedPtr`，所以只能调用 `const` 成员函数。如果只写这个版本：
+
+```cpp
+Entity* operator->()
+{
+    return m_Obj;
+}
+```
+
+编译器会报错，因为它不能在 `const ScopedPtr` 对象上调用非 `const` 的 `operator->()`。
+
+所以需要补一个 `const` 版本：
+
+```cpp
+const Entity* operator->() const
+{
+    return m_Obj;
+}
+```
+
+这里有两个 `const`：
+
+* 返回值是 `const Entity*`：表示不能通过这个指针修改 `Entity`；
+* 函数末尾的 `const`：表示调用 `operator->` 不会修改 `ScopedPtr` 自己。
+
+这也要求被调用的成员函数本身是 `const` 成员函数：
+
+```cpp
+void Print() const
+{
+    std::cout << "Entity" << std::endl;
+}
+```
+
+否则 `const Entity*` 不能调用非 `const` 成员函数。
+
+### 5. 小结：-> 是“指针语义”的入口
+
+> [!IMPORTANT]
+> **统一理解箭头运算符**
+>
+> * 普通对象访问成员：`object.member`；
+> * 原始指针访问成员：`pointer->member`，等价于 `(*pointer).member`；
+> * 自定义类型想表现得像指针：重载 `operator->`；
+> * `operator->` 通常返回一个指针，或者返回另一个也支持 `operator->` 的对象；
+> * 如果对象本身可能是 `const`，通常要同时提供 `const` 和非 `const` 两个版本。
+
+在真实项目中，`operator->` 最常见的场景就是智能指针、迭代器、代理对象这类“包装了另一个对象，但希望使用方式像指针”的类型。它不是为了炫技，而是为了让资源管理类在使用上尽量接近普通指针，同时又能在析构时自动释放资源。
+
+---
+
 ## typedef 与函数指针类型别名 (typedef & Function Pointer Alias)
 
 在学习 C 风格面向对象设计时，经常会看到这样的代码：
