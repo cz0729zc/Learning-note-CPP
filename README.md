@@ -3800,15 +3800,16 @@ target_link_libraries(Project1 PRIVATE glfw)
 先说当前结论：
 
 > [!IMPORTANT]
-> **当前项目里的 GLFW 是静态链接。**
+> **当前项目里的 GLFW 是动态链接。**
 >
 > 构建产物中生成的是：
 >
 > ```text
-> third_party/glfw-3.4/src/libglfw3.a
+> glfw3.dll
+> third_party/glfw-3.4/src/libglfw3dll.a
 > ```
 >
-> `.a` 是 MinGW / GCC 环境下常见的静态库文件。
+> `glfw3.dll` 是动态库本体，`libglfw3dll.a` 是链接阶段使用的 DLL 导入库。
 
 ### 1. 什么是静态链接？
 
@@ -3909,7 +3910,7 @@ The code execution cannot proceed because glfw3.dll was not found
 > [!NOTE]
 > Windows 下 `.lib` 不能只看后缀判断是静态库还是动态库导入库，要看它是怎么生成的。
 
-### 6. 为什么当前 GLFW 是静态链接？
+### 6. 为什么当前 GLFW 是动态链接？
 
 GLFW 自己的 `CMakeLists.txt` 中默认配置是：
 
@@ -3922,10 +3923,17 @@ option(BUILD_SHARED_LIBS "Build shared libraries" OFF)
 * `OFF`：默认构建静态库；
 * `ON`：默认构建动态库。
 
-当前项目没有把它改成 `ON`，所以 GLFW 默认生成静态库：
+当前项目在根目录 `CMakeLists.txt` 中把它改成了 `ON`：
+
+```cmake
+set(BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
+```
+
+所以 GLFW 会生成动态库：
 
 ```text
-libglfw3.a
+glfw3.dll
+libglfw3dll.a
 ```
 
 然后项目里通过：
@@ -3936,40 +3944,38 @@ target_link_libraries(Project1 PRIVATE
 )
 ```
 
-把这个静态库链接进 `Project1.exe`。
+链接到 GLFW 的导入库。运行时，`Project1.exe` 需要加载同目录下的 `glfw3.dll`。
 
-### 7. 如果想改成动态链接怎么办？
-
-如果以后想让 GLFW 构建成动态库，可以在：
+项目里还加了一个构建后复制命令：
 
 ```cmake
-add_subdirectory(third_party/glfw-3.4)
-```
-
-之前添加：
-
-```cmake
-set(BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
-```
-
-大致变成：
-
-```cmake
-set(BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
-
-add_subdirectory(third_party/glfw-3.4)
-
-target_link_libraries(Project1 PRIVATE
-    glfw
+add_custom_command(TARGET Project1 POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        $<TARGET_FILE:glfw>
+        $<TARGET_FILE_DIR:Project1>
 )
 ```
 
-这样 GLFW 就会倾向于生成动态库。但动态链接后，运行时就要注意 DLL 的位置。
+它的作用是：每次构建 `Project1` 后，把 `glfw3.dll` 自动复制到 `Project1.exe` 同目录，避免运行时报“找不到 glfw3.dll”。
 
-对于当前学习项目，我更推荐先保持静态链接：
+### 7. 如果想改回静态链接怎么办？
 
-```text
-少处理 DLL 路径问题，先把窗口、输入、OpenGL 上下文这些核心概念学清楚。
+如果以后想让 GLFW 构建成静态库，可以去掉或关闭：
+
+```cmake
+set(BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
+```
+
+改成：
+
+```cmake
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+```
+
+然后重新清理构建目录或使用 fresh configure：
+
+```powershell
+cmake --fresh --preset "GCC 15.2.0 x86_64-w64-mingw32 (ucrt64)"
 ```
 
 ### 8. 小结：静态链接 vs 动态链接
@@ -3981,7 +3987,7 @@ target_link_libraries(Project1 PRIVATE
 | 部署难度 | 简单 | 更麻烦 |
 | exe 体积 | 较大 | 较小 |
 | 更新库 | 需要重新链接 exe | 某些情况下替换 DLL 即可 |
-| 当前项目 GLFW | ✅ 是 | ❌ 不是 |
+| 当前项目 GLFW | ❌ 不是 | ✅ 是 |
 
 > [!IMPORTANT]
 > **判断当前项目的关键证据**
@@ -3989,17 +3995,256 @@ target_link_libraries(Project1 PRIVATE
 > 构建产物里是：
 >
 > ```text
+> glfw3.dll
+> libglfw3dll.a
+> ```
+>
+> 不是只生成：
+>
+> ```text
 > libglfw3.a
 > ```
 >
-> 不是：
->
-> ```text
-> glfw3.dll
-> ```
->
-> 所以当前 GLFW 是静态链接。
+> 所以当前 GLFW 是动态链接。
 
+---
+
+## 从代码到 exe 的构建流程 (Build Pipeline)
+
+这一部分结合当前项目里的 `main.cpp`、`src/Log.cpp`、GLFW 动态库，总结一段 C++ 程序从源码变成 `.exe` 中间经历了哪些步骤。
+
+整体流程可以先记成：
+
+```text
+源代码
+  ↓
+预处理
+  ↓
+编译
+  ↓
+汇编
+  ↓
+目标文件
+  ↓
+链接
+  ↓
+可执行文件
+```
+
+在当前项目里，大致是：
+
+```text
+main.cpp
+src/Log.cpp
+third_party/glfw-3.4/src/*.c
+        ↓
+Project1.exe + glfw3.dll
+```
+
+### 1. 预处理：展开 include 和宏
+
+预处理 (Preprocessing) 会处理 `#include`、`#define`、条件编译等内容。
+
+比如当前代码里：
+
+```cpp
+#include <iostream>
+#include <string>
+```
+
+预处理器会把这些头文件中需要的声明展开进来，让后面的编译阶段知道 `std::cout`、`std::string` 这些名字是什么。
+
+如果有宏：
+
+```cpp
+#define PI 3.14
+```
+
+也会在这个阶段进行文本替换。
+
+可以粗略理解成：
+
+```text
+main.cpp
+  ↓
+展开后的 main.i
+```
+
+### 2. 编译：类型检查、模板实例化、生成汇编
+
+编译 (Compilation) 会把预处理后的 C++ 代码转换成汇编代码。
+
+这一阶段会做很多重要事情：
+
+* 语法检查；
+* 类型检查；
+* 函数重载选择；
+* 模板实例化；
+* 优化；
+* 生成汇编代码。
+
+当前 `main.cpp` 里有函数模板：
+
+```cpp
+template<typename T>
+void Print(T value)
+{
+    std::cout << value << std::endl;
+}
+```
+
+调用：
+
+```cpp
+Print(3.14);
+Print(std::string("Hello, World!"));
+```
+
+编译器会在编译期根据实际使用的类型生成具体版本。可以粗略理解成：
+
+```cpp
+void Print_double(double value)
+{
+    std::cout << value << std::endl;
+}
+
+void Print_string(std::string value)
+{
+    std::cout << value << std::endl;
+}
+```
+
+真实函数名不会这么简单，但思想是一样的：**模板不是运行时才决定类型，而是编译时生成具体代码。**
+
+类模板也是一样：
+
+```cpp
+template<typename T, int N>
+class Array
+{
+private:
+    T m_Array[N];
+public:
+    int GetSize() const { return N; }
+};
+```
+
+当你写：
+
+```cpp
+Array<int, 5> array;
+Array<std::string, 10> stringArray;
+```
+
+编译器会生成两个不同类型：
+
+```text
+Array<int, 5>
+Array<std::string, 10>
+```
+
+也就是说，`template` 是编译期的代码生成机制。
+
+### 3. 汇编：生成目标文件
+
+汇编 (Assembly) 会把汇编代码转成机器码，但这时还不是完整程序。
+
+输出通常是目标文件：
+
+```text
+main.cpp.obj
+Log.cpp.obj
+```
+
+这些 `.obj` 文件里包含：
+
+* 当前 `.cpp` 编译出来的机器码；
+* 当前文件定义了哪些符号，例如函数、全局变量；
+* 当前文件引用了哪些外部符号，例如别的 `.cpp` 里的函数，或者 GLFW 里的函数。
+
+目标文件还不能直接运行，因为它们只是“零件”。
+
+### 4. 链接：把目标文件和库组合起来
+
+链接 (Linking) 会把多个目标文件和库文件合并成最终可执行文件：
+
+```text
+main.cpp.obj
+Log.cpp.obj
+GLFW 导入库 libglfw3dll.a
+系统库
+        ↓
+Project1.exe
+```
+
+链接器负责解决跨文件调用。
+
+比如 `main.cpp` 调用了 `Log.cpp` 中定义的函数，编译 `main.cpp` 时只知道“有这么个函数要调用”，真正把调用地址接起来，是链接阶段完成的。
+
+如果找不到函数实现，就会报：
+
+```text
+undefined reference
+```
+
+如果同一个函数被定义了两次，就会报：
+
+```text
+multiple definition
+```
+
+这些都属于链接阶段的问题。
+
+### 5. 动态链接：exe 运行时还需要 DLL
+
+当前项目里的 GLFW 是动态链接。构建阶段会生成：
+
+```text
+Project1.exe
+glfw3.dll
+```
+
+链接阶段使用的是导入库：
+
+```text
+libglfw3dll.a
+```
+
+运行阶段真正需要的是：
+
+```text
+glfw3.dll
+```
+
+所以当前项目里有这个 CMake 命令：
+
+```cmake
+add_custom_command(TARGET Project1 POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        $<TARGET_FILE:glfw>
+        $<TARGET_FILE_DIR:Project1>
+)
+```
+
+它会在构建后把 `glfw3.dll` 复制到 `Project1.exe` 同目录。
+
+### 6. 小结：每一阶段负责什么
+
+| 阶段 | 输入 | 输出 | 主要作用 |
+| --- | --- | --- | --- |
+| 预处理 | `.cpp` | 展开后的源码 | 处理 `#include`、宏、条件编译 |
+| 编译 | 展开后的源码 | 汇编代码 | 类型检查、模板实例化、生成汇编 |
+| 汇编 | 汇编代码 | `.obj` / `.o` | 生成机器码目标文件 |
+| 链接 | `.obj` + 库 | `.exe` | 合并目标文件，解析函数引用 |
+| 运行 | `.exe` + `.dll` | 程序执行 | 加载动态库并执行程序 |
+
+一句话总结：
+
+```text
+.cpp 不是直接变成 .exe；
+它会先变成 .obj，
+再由链接器把 .obj 和库组合成 .exe。
+```
 
 
 
