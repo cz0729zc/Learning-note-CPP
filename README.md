@@ -3793,6 +3793,362 @@ target_link_libraries(Project1 PRIVATE glfw)
 
 ---
 
+## 宏与条件日志 (Macros & Conditional Logging)
+
+这一部分结合教程第 55p 和当前项目里的 `Log` 类，总结 C++ 中**宏 (Macro)** 的基本用法，以及如何用宏控制 DEBUG / RELEASE 版本中的日志输出。
+
+宏属于**预处理阶段**的东西。也就是说，它发生在真正编译之前：
+
+```text
+源代码
+  ↓
+预处理：处理 #include / #define / #if / #ifdef
+  ↓
+编译
+```
+
+> [!IMPORTANT]
+> **宏不是 C++ 类型系统的一部分。**
+>
+> 它本质上是预处理器做的文本替换，所以很强大，也很容易用乱。能用普通函数、`const`、`constexpr`、模板解决的问题，通常不要优先用宏。
+
+### 1. 最简单的宏：文本替换
+
+比如：
+
+```cpp
+#define WAIT std::cin.get()
+```
+
+之后代码里写：
+
+```cpp
+WAIT;
+```
+
+预处理后大致会变成：
+
+```cpp
+std::cin.get();
+```
+
+再比如：
+
+```cpp
+#define LOG(x) std::cout << x << std::endl
+```
+
+调用：
+
+```cpp
+LOG("Hello");
+```
+
+预处理后大致变成：
+
+```cpp
+std::cout << "Hello" << std::endl;
+```
+
+这就是宏最核心的特点：**编译器看到代码之前，预处理器先把宏替换掉。**
+
+### 2. 为什么日志适合演示宏？
+
+开发 DEBUG 版本时，我们通常希望打印很多调试信息：
+
+```cpp
+LOG("Loading config...");
+LOG("Player position changed");
+```
+
+但 RELEASE 版本是给用户用的，很多调试日志没有必要：
+
+* 会污染控制台输出；
+* 会增加一点运行时开销；
+* 有时还可能暴露内部调试信息。
+
+所以目标是：
+
+```text
+DEBUG 版本：LOG(x) 正常打印
+RELEASE 版本：LOG(x) 直接消失
+```
+
+宏很适合演示这个效果，因为它可以在**预处理阶段**决定一段代码是否存在。
+
+### 3. 用 #ifdef 控制 LOG 是否生效
+
+一种常见写法是：
+
+```cpp
+#ifdef PR_DEBUG
+    #define LOG(x) std::cout << x << std::endl
+#else
+    #define LOG(x)
+#endif
+```
+
+如果定义了：
+
+```cpp
+PR_DEBUG
+```
+
+那么：
+
+```cpp
+LOG("Hello");
+```
+
+会被替换成：
+
+```cpp
+std::cout << "Hello" << std::endl;
+```
+
+如果没有定义 `PR_DEBUG`，那么：
+
+```cpp
+LOG("Hello");
+```
+
+会被替换成空内容。最后只剩一个分号：
+
+```cpp
+;
+```
+
+这就是 RELEASE 版本中日志“不存在”的原因：不是运行时判断 `if`，而是预处理阶段就把日志代码去掉了。
+
+> [!TIP]
+> `PR_DEBUG` 里的 `PR` 通常是项目名前缀，避免和别的库或系统宏撞名。比如项目叫 `Project1`，可以叫 `PROJECT_DEBUG`；游戏引擎叫 `Sparky`，可以叫 `SP_DEBUG`。
+
+### 4. 更推荐的写法：用 1 / 0 控制
+
+比起只判断“有没有定义”，更清晰的写法是让宏有明确的值：
+
+```cpp
+#define PROJECT_DEBUG 1
+```
+
+然后：
+
+```cpp
+#if PROJECT_DEBUG
+    #define LOG(x) std::cout << x << std::endl
+#else
+    #define LOG(x)
+#endif
+```
+
+这样可以直接通过 `PROJECT_DEBUG` 是 `1` 还是 `0` 来控制日志：
+
+```cpp
+#define PROJECT_DEBUG 1 // 打印日志
+#define PROJECT_DEBUG 0 // 不打印日志
+```
+
+当然，实际项目中通常不把这个值硬编码在 `.cpp` 里，而是交给构建系统设置。
+
+### 5. 在 CMake 中区分 Debug 和 Release
+
+当前项目使用 CMake，所以可以在 `CMakeLists.txt` 中给不同构建类型定义不同宏。
+
+例如：
+
+```cmake
+target_compile_definitions(Project1 PRIVATE
+    $<$<CONFIG:Debug>:PROJECT_DEBUG=1>
+    $<$<CONFIG:Release>:PROJECT_DEBUG=0>
+)
+```
+
+意思是：
+
+* Debug 构建：定义 `PROJECT_DEBUG=1`；
+* Release 构建：定义 `PROJECT_DEBUG=0`。
+
+然后 C++ 里可以写：
+
+```cpp
+#if PROJECT_DEBUG
+    #define LOG(x) std::cout << x << std::endl
+#else
+    #define LOG(x)
+#endif
+```
+
+> [!NOTE]
+> 你当前的 preset 里写的是：
+>
+> ```json
+> "CMAKE_BUILD_TYPE": "Debug"
+> ```
+>
+> 所以当前默认是 Debug 构建。如果以后要测试 Release，需要把构建类型切到 `Release`，或者增加一个 Release preset。
+
+### 6. 和当前 Log 类的关系
+
+当前项目里已经有一个 `Log` 类：
+
+```cpp
+class Log
+{
+public:
+    enum LogLevel
+    {
+        LogLevelInfo,
+        LogLevelWarning,
+        LogLevelError
+    };
+
+    void SetLevel(LogLevel newLevel);
+    void info(const char* message);
+    void warn(const char* message);
+    void error(const char* message);
+};
+```
+
+这个类解决的是：
+
+```text
+日志分级：Info / Warning / Error 哪些要打印
+```
+
+而宏解决的是：
+
+```text
+这个版本里日志代码要不要参与编译
+```
+
+两者可以配合：
+
+```cpp
+#if PROJECT_DEBUG
+    #define LOG_INFO(logger, message) logger.info(message)
+    #define LOG_WARN(logger, message) logger.warn(message)
+    #define LOG_ERROR(logger, message) logger.error(message)
+#else
+    #define LOG_INFO(logger, message)
+    #define LOG_WARN(logger, message)
+    #define LOG_ERROR(logger, message)
+#endif
+```
+
+使用：
+
+```cpp
+Log log;
+log.SetLevel(Log::LogLevelInfo);
+
+LOG_INFO(log, "Application started");
+LOG_WARN(log, "Low memory");
+LOG_ERROR(log, "Failed to load file");
+```
+
+在 Debug 版本中，预处理后大致是：
+
+```cpp
+log.info("Application started");
+log.warn("Low memory");
+log.error("Failed to load file");
+```
+
+在 Release 版本中，预处理后大致变成空语句：
+
+```cpp
+;
+;
+;
+```
+
+这就实现了：
+
+```text
+Debug：打印日志
+Release：日志代码不参与编译
+```
+
+### 7. 宏和普通 if 的区别
+
+如果用普通 `if`：
+
+```cpp
+if (debug)
+{
+    std::cout << "Hello" << std::endl;
+}
+```
+
+这段代码仍然会进入编译流程，只是运行时根据 `debug` 的值决定是否执行。
+
+但宏是：
+
+```cpp
+#if PROJECT_DEBUG
+    #define LOG(x) std::cout << x << std::endl
+#else
+    #define LOG(x)
+#endif
+```
+
+如果 `PROJECT_DEBUG` 是 `0`，日志代码在预处理阶段就被替换没了，后面的编译器根本看不到那段输出代码。
+
+> [!WARNING]
+> **宏会影响表达式是否被求值**
+>
+> 如果写：
+>
+> ```cpp
+> LOG(++count);
+> ```
+>
+> Debug 版本中 `++count` 会执行；Release 版本中 `LOG(x)` 变成空内容，`++count` 也不会执行。
+>
+> 所以不要在日志宏的参数里写会改变程序状态的表达式。
+
+### 8. 小结：宏适合做编译期开关
+
+> [!IMPORTANT]
+> **宏最适合处理“编译前就要决定”的事情**
+>
+> * Debug / Release 下启用或关闭日志；
+> * 平台判断，例如 Windows / Linux / macOS；
+> * 编译期开关，例如是否启用某个调试工具。
+
+但宏的缺点也很明显：
+
+* 它只是文本替换，不做类型检查；
+* 宏展开后的代码不一定直观；
+* 使用过多会降低可读性；
+* 参数里如果有副作用，Debug / Release 行为可能不一致。
+
+所以这节最重要的结论是：
+
+```text
+宏可以用来控制 Debug / Release 版本中的日志是否存在；
+但不要把宏当成普通函数滥用。
+```
+
+对于当前项目，如果只是学习，可以先理解这种写法：
+
+```cpp
+#if PROJECT_DEBUG
+    #define LOG(x) std::cout << x << std::endl
+#else
+    #define LOG(x)
+#endif
+```
+
+它表达的核心意图就是：
+
+```text
+Debug 版本：保留日志输出
+Release 版本：移除日志输出
+```
+
+---
+
 ## 静态链接与动态链接 (Static Linking & Dynamic Linking)
 
 这一部分继续结合当前项目里的 GLFW，总结 C++ 项目中经常遇到的两个概念：**静态链接**和**动态链接**。
@@ -4245,6 +4601,5 @@ add_custom_command(TARGET Project1 POST_BUILD
 它会先变成 .obj，
 再由链接器把 .obj 和库组合成 .exe。
 ```
-
 
 
