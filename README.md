@@ -4602,4 +4602,184 @@ add_custom_command(TARGET Project1 POST_BUILD
 再由链接器把 .obj 和库组合成 .exe。
 ```
 
+---
 
+## auto 关键字与类型推导 (The auto Keyword & Type Deduction)
+
+这一部分对应 [视频第 56 P：The auto keyword in C++](https://www.bilibili.com/video/BV1VJ411M7WR/?p=56)，并结合当前 `main.cpp` 中的字符串容器、迭代器和设备映射说明 `auto` 的用途。
+
+`auto` 的核心作用是：**让编译器根据初始化表达式推导变量类型。**
+
+它只是省略了类型的书写，不会让 C++ 变成运行时才决定类型的动态语言。变量的具体类型仍然会在编译期确定，并接受正常的类型检查。
+
+### 1. auto 不是“任意类型”
+
+例如：
+
+```cpp
+auto number = 10;                  // int
+auto price = 3.14;                 // double
+auto text = std::string("Hello"); // std::string
+```
+
+编译器看到右侧的初始化值后，会推导出与下面代码相同的类型：
+
+```cpp
+int number = 10;
+double price = 3.14;
+std::string text = "Hello";
+```
+
+因此，使用 `auto` 时通常必须立即初始化：
+
+```cpp
+auto value; // 错误：编译器没有依据推导类型
+```
+
+对于 `int`、`double` 等一眼就能写清楚的简单类型，显式类型往往更直观。`auto` 更适合用来简化很长、重复或容易写错的类型。
+
+### 2. 用 auto 简化迭代器类型
+
+当前代码中的字符串容器是：
+
+```cpp
+std::vector<std::string> strings;
+strings.push_back("Hello");
+strings.push_back("World");
+```
+
+如果显式写出迭代器类型，循环会比较长：
+
+```cpp
+for (std::vector<std::string>::iterator it = strings.begin();
+     it != strings.end(); ++it)
+{
+    std::cout << *it << std::endl;
+}
+```
+
+`strings.begin()` 已经明确返回 `std::vector<std::string>::iterator`，所以这里用 `auto` 可以减少重复：
+
+```cpp
+for (auto it = strings.begin();
+     it != strings.end(); ++it)
+{
+    std::cout << *it << std::endl;
+}
+```
+
+两种写法生成的迭代器类型相同，`auto` 只是让代码更短，并没有改变循环的行为。
+
+### 3. 复杂返回类型的三种写法
+
+当前 `DeviceManager` 保存了一个设备映射：
+
+```cpp
+std::unordered_map<std::string, std::vector<Deveice*>> deviceMap;
+```
+
+它的 getter 返回常量引用：
+
+```cpp
+const std::unordered_map<std::string, std::vector<Deveice*>>&
+getDeviceMap() const
+{
+    return deviceMap;
+}
+```
+
+接收返回值时，可以完整写出类型：
+
+```cpp
+const std::unordered_map<std::string, std::vector<Deveice*>>& deviceMap =
+    deviceManager.getDeviceMap();
+```
+
+也可以先创建类型别名：
+
+```cpp
+using DeviceMap =
+    std::unordered_map<std::string, std::vector<Deveice*>>;
+
+const DeviceMap& deviceMap = deviceManager.getDeviceMap();
+```
+
+还可以让编译器直接推导基础类型：
+
+```cpp
+const auto& deviceMap = deviceManager.getDeviceMap();
+```
+
+这三种写法在这里表达的是同一件事：`deviceMap` 是对 `DeviceManager` 内部映射的只读引用。
+
+### 4. 为什么这里要写 const auto&？
+
+只写 `auto` 时，默认会创建一个新对象：
+
+```cpp
+auto deviceMap = deviceManager.getDeviceMap();
+```
+
+虽然 `getDeviceMap()` 返回的是 `const ...&`，但普通 `auto` 推导会去掉顶层的引用和 `const`。所以上面的代码会复制整个 `std::unordered_map`。
+
+如果希望继续引用原对象，就要显式保留引用。由于 getter 返回的是常量引用，这里还必须保留 `const`：
+
+```cpp
+const auto& deviceMap = deviceManager.getDeviceMap();
+```
+
+可以把三种形式记成：
+
+| 写法 | 含义 | 当前示例中的结果 |
+| --- | --- | --- |
+| `auto value = expression;` | 按值接收 | 复制整个设备映射 |
+| `auto& value = expression;` | 可修改引用 | 不能绑定到当前 getter 返回的 `const` 对象 |
+| `const auto& value = expression;` | 只读引用 | 不复制，并保持 getter 的只读语义 |
+
+> [!IMPORTANT]
+> `auto` 只负责推导基础类型，是否按值、按引用以及是否只读，仍然需要通过 `&` 和 `const` 明确表达。
+
+### 5. using、typedef 与 auto 的区别
+
+当前代码展示了两种类型别名语法：
+
+```cpp
+using DeviceMap = std::unordered_map<std::string, std::vector<Deveice*>>;
+typedef std::unordered_map<std::string, std::vector<Deveice*>> DeviceMap;
+```
+
+它们都是给一个已知类型起名字；`auto` 则是根据表达式推导类型。
+
+```text
+using / typedef：程序员明确指定“这个别名代表什么类型”
+auto：编译器根据初始化表达式判断“这个变量是什么类型”
+```
+
+实际代码中不需要同时保留两个同名别名，选择一种即可。现代 C++ 通常更常使用 `using`，因为复杂类型和模板别名的写法更容易阅读。
+
+### 6. 什么时候适合使用 auto？
+
+适合使用的场景：
+
+* 迭代器类型很长，但右侧已经清楚表达类型；
+* 模板或嵌套容器类型很复杂；
+* 类型名称重复书写会增加维护成本；
+* 使用 `const auto&` 遍历或接收复杂对象，能清楚表达“只读且不复制”。
+
+不适合盲目使用的场景：
+
+* 显式类型本来就很短；
+* 仅看右侧无法判断变量大致是什么；
+* 数值类型的精度、符号或位宽对逻辑很重要；
+* 忘记 `&` 会意外复制大型对象。
+
+### 7. 小结：auto 应该提升可读性
+
+`auto` 的价值不是单纯少写几个字符，而是把冗长的类型交给编译器，同时让读者把注意力放在变量用途上。
+
+一句话总结：
+
+```text
+类型明显、写出来很长时可以用 auto；
+需要引用或只读语义时，别忘了同时写出 & 和 const。
+```

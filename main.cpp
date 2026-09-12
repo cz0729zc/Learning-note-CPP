@@ -1,52 +1,60 @@
 #include <iostream>
-#include <string> 
+#include <string>
+#include <vector>
+#include <unordered_map>
 
-// T 是类型模板参数。调用 Print 时，编译器会根据实参类型推导 T，
-// 并生成对应类型的 Print 函数版本。
-template<typename T>
-void Print(T value)
+class Deveice
 {
-    std::cout << value << std::endl;
-}
 
-//当模板参数为int类型时，使用函数模板创建特定版本
-template<>
-void Print<int>(int value)
-{
-    std::cout << value << std::endl;
-}
+};
 
-//当模板参数为float类型时，使用函数模板创建特定版本
-template<>
-void Print<float>(float value)
-{
-    std::cout << value << std::endl;
-}
-
-//类模板,
-template<typename T,int N>
-class Array
+class DeviceManager
 {
 private:
-    T m_Array[N];
+    std::unordered_map<std::string, std::vector<Deveice*>> deviceMap;
+
 public:
-    int GetSize() const { return N; }
+    const std::unordered_map<std::string, std::vector<Deveice*>>& getDeviceMap() const
+    {
+        return deviceMap;
+    }
 };
 
 int main()
 {
-    /*尖括号可以指定模板参数*/
-    Print<int>(42);
-    Print<int>('a');    
+    std::vector<std::string> strings;
+    strings.push_back("Hello");
+    strings.push_back("World");
 
-    Print(3.14);
-    Print(std::string("Hello, World!"));
+    // for (std::vector<std::string>::iterator it = strings.begin();
+    //     it != strings.end(); ++it)
+    // {
+    //     std::cout << *it << std::endl;
+    // }
 
-    Array<int, 5> array;
-    std::cout << "Array size: " << array.GetSize() << std::endl;
+    /* auto 适合长类型代码简化 若只是简单类型如int string等不要使用auto会影响代码可读性 */
+    // for (auto it = strings.begin();
+    //     it != strings.end(); ++it)
+    // {
+    //     std::cout << *it << std::endl;
+    // }
 
-    Array<std::string, 10> stringArray;
-    std::cout << "String array size: " << stringArray.GetSize() << std::endl;
+    //两种写法
+    using DeviceMap = std::unordered_map<std::string, std::vector<Deveice*>>;
+    typedef std::unordered_map<std::string, std::vector<Deveice*>> DeviceMap;
 
-    return 0;
+    DeviceManager deviceManager;
+
+    //三种写法
+
+    //第一种写法
+    // const std::unordered_map<std::string, std::vector<Deveice*>>& deviceMap = deviceManager.getDeviceMap();
+
+    //第二种写法
+    const DeviceMap& deviceMap = deviceManager.getDeviceMap();
+
+    //第三种写法
+    // const auto& deviceMap = deviceManager.getDeviceMap();
+    
+
 }
