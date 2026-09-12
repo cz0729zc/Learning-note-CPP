@@ -1,60 +1,60 @@
 #include <iostream>
 #include <string>
+#include <array>
 #include <vector>
-#include <unordered_map>
 
-class Deveice
+void Print()
 {
+    std::cout << "Hello, World!" << std::endl;
+}
 
-};
-
-class DeviceManager
+void PrintNumber(int X)
 {
-private:
-    std::unordered_map<std::string, std::vector<Deveice*>> deviceMap;
+    std::cout << "Number: " << X << std::endl;
+}
 
-public:
-    const std::unordered_map<std::string, std::vector<Deveice*>>& getDeviceMap() const
+void PrintValue(int X)
+{
+    std::cout << "Vlaue : " << X << std::endl;
+}
+
+void ForEach(std::vector<int> numbers, void(*Function)(int))
+{
+    for (int number : numbers)
     {
-        return deviceMap;
+        Function(number);
     }
-};
+}
 
 int main()
 {
-    std::vector<std::string> strings;
-    strings.push_back("Hello");
-    strings.push_back("World");
+    // Print();
+    void(*message)() = Print;
+    // message = Print;
+    message();
 
-    // for (std::vector<std::string>::iterator it = strings.begin();
-    //     it != strings.end(); ++it)
-    // {
-    //     std::cout << *it << std::endl;
-    // }
+    auto message2 = Print;
+    message2();
 
-    /* auto 适合长类型代码简化 若只是简单类型如int string等不要使用auto会影响代码可读性 */
-    // for (auto it = strings.begin();
-    //     it != strings.end(); ++it)
-    // {
-    //     std::cout << *it << std::endl;
-    // }
+    void(*messageNumber)(int) = PrintNumber;
+    messageNumber(5);
 
-    //两种写法
-    using DeviceMap = std::unordered_map<std::string, std::vector<Deveice*>>;
-    typedef std::unordered_map<std::string, std::vector<Deveice*>> DeviceMap;
+    auto messageNumber2 = PrintNumber;
+    messageNumber2(10);
 
-    DeviceManager deviceManager;
+    typedef void(*HelloworldFunction)();
 
-    //三种写法
+    HelloworldFunction hellowrold = Print;
+    hellowrold();
 
-    //第一种写法
-    // const std::unordered_map<std::string, std::vector<Deveice*>>& deviceMap = deviceManager.getDeviceMap();
+    typedef void(*PrintNumberFunction)(int);
+    PrintNumberFunction printNumber = PrintNumber;
+    printNumber(100);
 
-    //第二种写法
-    const DeviceMap& deviceMap = deviceManager.getDeviceMap();
+    std::vector<int> numbers = {1, 2, 3, 4, 5};
+    ForEach(numbers, PrintValue);
+    ForEach(numbers, [](int X){ std::cout << "Lambda Value: " << X << std::endl;});
 
-    //第三种写法
-    // const auto& deviceMap = deviceManager.getDeviceMap();
-    
 
+    return 0;
 }

@@ -4783,3 +4783,258 @@ auto：编译器根据初始化表达式判断“这个变量是什么类型”
 类型明显、写出来很长时可以用 auto；
 需要引用或只读语义时，别忘了同时写出 & 和 const。
 ```
+
+---
+
+## 函数指针与回调 (Function Pointers & Callbacks)
+
+这一部分对应 [视频合集第 59 P：C++ 的函数指针](https://www.bilibili.com/video/BV1Dk4y1j7oj/?p=59)，并结合当前 `main.cpp` 中的 `Print`、`PrintNumber`、`ForEach` 和 lambda 示例理解函数指针。
+
+前面的“typedef 与函数指针类型别名”一节重点解释了复杂声明的读法；这一节继续关注函数地址、调用方式，以及如何把函数作为参数传给另一个函数。
+
+### 1. 函数也有地址
+
+函数编译后会成为可执行文件中的一段指令，因此也有一个入口地址。函数指针就是用来保存这个地址的变量。
+
+当前代码中有一个无参数、无返回值的函数：
+
+```cpp
+void Print()
+{
+    std::cout << "Hello, World!" << std::endl;
+}
+```
+
+对应的函数指针可以写成：
+
+```cpp
+void(*message)() = Print;
+message();
+```
+
+这段声明可以从变量名向外读：
+
+```text
+message
+  ↓
+是一个指针
+  ↓
+指向参数列表为空、返回值为 void 的函数
+```
+
+`Print` 在这里会转换成指向该函数的指针。也可以显式写成 `&Print`，但通常没有必要：
+
+```cpp
+void(*message)() = &Print;
+(*message)();
+```
+
+`message()` 和 `(*message)()` 都能调用目标函数，前一种写法更常见。
+
+### 2. 函数签名必须匹配
+
+带一个 `int` 参数的函数是：
+
+```cpp
+void PrintNumber(int X)
+{
+    std::cout << "Number: " << X << std::endl;
+}
+```
+
+它对应的函数指针类型必须同样接收一个 `int`，并返回 `void`：
+
+```cpp
+void(*messageNumber)(int) = PrintNumber;
+messageNumber(5);
+```
+
+返回值类型或参数列表不同，就不是同一种函数指针类型：
+
+```cpp
+void(*message)() = PrintNumber; // 错误：PrintNumber 需要一个 int 参数
+```
+
+> [!IMPORTANT]
+> 判断两个函数指针是否兼容，要同时检查返回值类型和完整参数列表，而不只是函数名称。
+
+### 3. 用 auto 推导函数指针
+
+上一节介绍的 `auto` 也可以用于函数指针：
+
+```cpp
+auto message2 = Print;
+message2();
+
+auto messageNumber2 = PrintNumber;
+messageNumber2(10);
+```
+
+编译器会分别推导为 `void(*)()` 和 `void(*)(int)`。当右侧直接写着函数名时，使用 `auto` 可以避免书写难读的函数指针声明。
+
+如果函数发生了重载，仅写函数名可能无法确定想要哪个版本。这时可以显式写出函数指针类型，帮助编译器选择正确的重载。
+
+### 4. 用 typedef 或 using 给函数指针起别名
+
+当前代码还展示了 `typedef`：
+
+```cpp
+typedef void(*HelloworldFunction)();
+HelloworldFunction hellowrold = Print;
+hellowrold();
+
+typedef void(*PrintNumberFunction)(int);
+PrintNumberFunction printNumber = PrintNumber;
+printNumber(100);
+```
+
+现代 C++ 也可以使用 `using`：
+
+```cpp
+using HelloWorldFunction = void(*)();
+using PrintNumberFunction = void(*)(int);
+```
+
+三种写法的用途可以这样区分：
+
+| 写法 | 特点 |
+| --- | --- |
+| `typedef void(*Function)(int);` | 传统 C/C++ 类型别名 |
+| `using Function = void(*)(int);` | 从左到右更容易阅读 |
+| `auto function = PrintNumber;` | 根据具体函数直接推导变量类型 |
+
+### 5. 把函数作为参数：实现回调
+
+当前 `ForEach` 的第二个参数就是函数指针：
+
+```cpp
+void ForEach(std::vector<int> numbers, void(*Function)(int))
+{
+    for (int number : numbers)
+    {
+        Function(number);
+    }
+}
+```
+
+调用时把 `PrintValue` 传进去：
+
+```cpp
+std::vector<int> numbers = {1, 2, 3, 4, 5};
+ForEach(numbers, PrintValue);
+```
+
+执行过程可以理解成：
+
+```text
+ForEach 接收 PrintValue 的地址
+        ↓
+遍历 numbers 中的每个元素
+        ↓
+通过 Function(number) 回调 PrintValue
+```
+
+`ForEach` 不需要知道函数内部如何处理数字，只需要约定回调签名必须是 `void(int)`。因此可以在不修改遍历逻辑的情况下替换具体行为。
+
+这就是回调的核心：**调用方把“要执行的行为”作为参数传给通用流程。**
+
+### 6. 当前 ForEach 会复制 vector
+
+当前参数写法是按值传递：
+
+```cpp
+void ForEach(std::vector<int> numbers, void(*Function)(int))
+```
+
+调用时会复制一份 `numbers`。函数只读取容器，不需要拥有副本，因此更合适的写法是常量引用：
+
+```cpp
+void ForEach(const std::vector<int>& numbers, void(*Function)(int))
+{
+    for (int number : numbers)
+    {
+        Function(number);
+    }
+}
+```
+
+这里的改进与函数指针本身无关，但能避免每次调用 `ForEach` 时复制整个动态数组。
+
+### 7. 为什么无捕获 lambda 也能传进去？
+
+当前代码还写了：
+
+```cpp
+ForEach(numbers,
+    [](int X)
+    {
+        std::cout << "Lambda Value: " << X << std::endl;
+    });
+```
+
+这个 lambda 的捕获列表是空的 `[]`，参数和返回值也符合 `void(int)`，因此可以转换成当前 `ForEach` 所要求的函数指针。
+
+如果 lambda 捕获了外部变量，就不能转换成普通函数指针：
+
+```cpp
+int prefix = 10;
+
+ForEach(numbers,
+    [prefix](int X)
+    {
+        std::cout << prefix + X << std::endl;
+    }); // 错误：捕获了 prefix
+```
+
+原因是普通函数指针只保存函数入口地址，没有地方保存 `prefix` 这类额外状态。需要接收有状态的 lambda 时，可以把 `ForEach` 写成函数模板：
+
+```cpp
+template<typename Function>
+void ForEach(const std::vector<int>& numbers, Function function)
+{
+    for (int number : numbers)
+    {
+        function(number);
+    }
+}
+```
+
+这样无捕获和有捕获 lambda 都可以使用。
+
+### 8. 函数指针也可能为空
+
+函数指针可以被设为 `nullptr`：
+
+```cpp
+void(*function)(int) = nullptr;
+```
+
+直接调用空函数指针会产生未定义行为，因此当来源不确定时要先检查：
+
+```cpp
+if (function)
+{
+    function(10);
+}
+```
+
+当前代码传入的都是已经定义好的函数和 lambda，所以 `ForEach` 中可以直接调用。不过在事件系统、插件接口或 C 风格回调 API 中，空值检查通常很重要。
+
+### 9. 小结：函数指针把行为变成参数
+
+| 代码 | 含义 |
+| --- | --- |
+| `void(*function)()` | 指向 `void()` 函数 |
+| `void(*function)(int)` | 指向 `void(int)` 函数 |
+| `auto function = Print;` | 根据函数推导指针类型 |
+| `typedef void(*Function)(int);` | 创建函数指针类型别名 |
+| `ForEach(numbers, PrintValue);` | 把普通函数作为回调 |
+| `ForEach(numbers, [](int value) { ... });` | 把无捕获 lambda 作为回调 |
+
+一句话总结：
+
+```text
+函数指针保存函数入口地址；
+回调则把这个地址传给通用流程，
+让“遍历什么”和“对元素做什么”彼此分离。
+```
