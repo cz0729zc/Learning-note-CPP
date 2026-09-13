@@ -5270,3 +5270,297 @@ std:: 前缀不是无意义的噪音；
 它能标明名称来源、缩小查找范围，
 并减少当前代码和未来标准库之间的命名冲突。
 ```
+
+---
+
+## C++ 线程与 join (Threads & Synchronization)
+
+这一部分对应 [视频合集第 63 P：C++ 的线程](https://www.bilibili.com/video/BV1Dk4y1j7oj/?p=63)，并结合当前 `main.cpp` 中的主线程、工作线程和输入线程理解 `std::thread`。
+
+这个合集最前面额外加入了“C++ 简史”，所以页面参数是 `p=63`，实际分集标题编号是“【62】C++ 的线程”。
+
+线程允许一个进程中存在多个独立执行流。它们共享进程中的大部分内存，但拥有各自的调用栈，并由操作系统调度执行。
+
+### 1. 当前程序中有三个执行流
+
+程序开始运行时已经存在主线程，随后又创建了两个线程：
+
+```cpp
+std::thread worker(DoWork);
+std::thread inputThread(finish);
+```
+
+它们分别执行不同任务：
+
+| 线程 | 入口函数 | 主要任务 |
+| --- | --- | --- |
+| 主线程 | `main` | 创建线程并等待它们结束 |
+| 工作线程 | `DoWork` | 循环输出 `Working...` |
+| 输入线程 | `finish` | 等待键盘输入并发出停止通知 |
+
+可以粗略理解为：
+
+```text
+main
+ ├─ worker      → DoWork()
+ └─ inputThread → finish()
+```
+
+`std::thread worker(DoWork)` 不是在主线程中普通地调用 `DoWork()`，而是创建新线程，让新线程从这个函数开始执行。
+
+### 2. 创建顺序不保证执行顺序
+
+虽然代码先创建 `worker`，再创建 `inputThread`，但不能保证工作线程一定先输出。线程创建后，谁先获得 CPU 时间由操作系统调度。
+
+因此下面两种顺序都可能出现：
+
+```text
+Worker thread started...
+Input thread started...
+```
+
+```text
+Input thread started...
+Worker thread started...
+```
+
+多线程程序不能依赖日志碰巧出现的顺序判断同步关系。
+
+### 3. 使用 get_id 区分线程
+
+当前代码在三个执行流中都调用：
+
+```cpp
+std::this_thread::get_id()
+```
+
+`std::this_thread` 表示调用代码的当前线程。因此，它在 `main`、`DoWork` 和 `finish` 中会分别返回对应线程的标识符。
+
+线程 ID 适合用于日志和调试，但不应假设它是从 1 开始连续增长的普通整数。
+
+### 4. sleep_for 只暂停调用它的线程
+
+工作线程每次输出后休眠一秒：
+
+```cpp
+while (!g_stop)
+{
+    std::cout << "Working..." << std::endl;
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+}
+```
+
+`sleep_for` 只暂停这里的 `worker`。休眠期间：
+
+* 主线程仍然可以执行；
+* 输入线程仍然可以等待并接收输入；
+* 其他线程也可以继续运行。
+
+它能避免工作线程无间隔地反复输出并持续占用 CPU。休眠结束只表示线程重新具备运行条件，不保证它会在恰好一秒时立即获得调度。
+
+代码使用了 `std::chrono::milliseconds`，更稳妥的做法是显式包含：
+
+```cpp
+#include <chrono>
+```
+
+不要依赖某个标准库实现通过 `<thread>` 间接包含 `<chrono>`。
+
+### 5. 输入线程如何通知工作线程停止
+
+`finish` 等待用户输入：
+
+```cpp
+void finish()
+{
+    std::cout << "Input thread started. Thread ID: "
+              << std::this_thread::get_id()
+              << std::endl;
+
+    std::cin.get();
+    g_stop = true;
+}
+```
+
+按下 Enter 后，`std::cin.get()` 返回，输入线程修改停止标志。工作线程下一次检查循环条件时，如果观察到停止状态，就会退出 `while` 并从 `DoWork` 返回。
+
+```text
+inputThread 等待输入
+        ↓
+用户按下 Enter
+        ↓
+设置停止标志
+        ↓
+worker 退出循环
+        ↓
+DoWork 返回
+```
+
+### 6. worker.join() 的具体作用
+
+主线程中写了：
+
+```cpp
+worker.join();
+```
+
+`join()` 的作用是：**阻塞当前调用线程，直到目标线程执行结束。**
+
+这里调用 `join()` 的是主线程，所以主线程会停在这一行；目标是 `worker`，所以必须等到 `DoWork()` 返回后，主线程才能继续。
+
+> [!IMPORTANT]
+> `join()` 不会主动停止线程，也不会把停止标志自动设为 `true`。它只负责等待。
+
+需要把“通知停止”和“等待结束”分开理解：
+
+```text
+停止标志       → 通知 worker 应该退出
+worker.join()  → 等待 worker 已经退出
+```
+
+因此当前注释中的：
+
+```cpp
+// this will never happen in this example
+```
+
+并不符合现在的代码。输入线程收到输入后会设置停止标志，工作线程具备退出条件，随后 `worker.join()` 就可以返回。
+
+如果没有任何线程改变停止条件，或者线程函数本身永远不返回，`join()` 才会一直等待。
+
+### 7. 两个 join 的顺序
+
+当前代码先等待工作线程，再等待输入线程：
+
+```cpp
+worker.join();
+inputThread.join();
+```
+
+主线程阻塞在 `worker.join()` 时，不会阻止 `inputThread` 运行。输入线程依然可以接收输入并通知工作线程退出。
+
+```text
+主线程   ───────── worker.join() 等待 ─────────→ 继续
+worker   ── Working... ── Working... ── 退出 ─→
+输入线程 ───────── 等待输入 ── 设置停止标志 ─→
+```
+
+如果交换两个 `join()`，当前示例通常也能完成，只是主线程先明确等待输入线程结束。书写顺序决定主线程依次等待谁，不会强制其他线程按照这个顺序执行。
+
+### 8. 普通 bool 会产生数据竞争
+
+当前停止标志是：
+
+```cpp
+bool g_stop = false;
+```
+
+它被两个线程同时访问：
+
+```text
+inputThread 写入 g_stop
+worker      读取 g_stop
+```
+
+普通 `bool` 的这种跨线程读写没有同步机制，会产生数据竞争；C++ 将其定义为未定义行为。
+
+问题不只是一个字节的读写是否完整。编译器和 CPU 还可能缓存、重排或优化内存访问，因此不能依赖工作线程“迟早会看到”另一个线程写入的值。
+
+> [!WARNING]
+> `volatile bool` 不能解决这个问题。`volatile` 不是线程同步工具，不提供原子性和线程间可见性保证。
+
+### 9. 使用 atomic 实现安全停止
+
+这个示例只需要共享一个布尔状态，适合使用 `std::atomic<bool>`：
+
+```cpp
+#include <atomic>
+#include <chrono>
+#include <iostream>
+#include <thread>
+
+std::atomic<bool> g_stop{false};
+```
+
+读取与写入可以显式写成：
+
+```cpp
+void DoWork()
+{
+    while (!g_stop.load())
+    {
+        std::cout << "Working..." << std::endl;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    }
+}
+
+void finish()
+{
+    std::cin.get();
+    g_stop.store(true);
+}
+```
+
+`std::atomic<bool>` 保证对停止标志的访问不会形成数据竞争。对于这个只传递“停止或继续”状态的入门示例，使用默认内存顺序即可。
+
+```text
+inputThread: g_stop.store(true)
+                 ↓
+worker:      g_stop.load() 得到 true
+                 ↓
+DoWork 返回
+                 ↓
+worker.join() 返回
+```
+
+### 10. thread 离开作用域前必须处理
+
+`std::thread` 创建线程后处于可连接状态，可以使用：
+
+```cpp
+worker.joinable()
+```
+
+检查它能否被 `join()`：
+
+```cpp
+if (worker.joinable())
+{
+    worker.join();
+}
+```
+
+需要注意：
+
+* 同一个线程不能连续调用两次 `join()`；
+* 默认构造、已经 `join()` 或已经 `detach()` 的线程不可再次 `join()`；
+* 如果仍可连接的 `std::thread` 对象直接析构，程序会调用 `std::terminate()`；
+* `join()` 返回后，目标线程已经结束，线程对象不再可连接。
+
+所以当前程序中的两个 `join()` 也确保了 `main()` 返回前，两个新线程都已经结束。
+
+### 11. 多线程日志可能交错
+
+三个线程都可能使用 `std::cout`。多个 `<<` 组成的一条输出不一定作为不可分割的整体执行，因此线程切换发生在输出中间时，文字可能出现在同一行或相互穿插。
+
+这不代表线程 ID 相同，也不一定代表业务逻辑错误，只说明完整日志消息之间没有同步。正式的多线程日志系统通常会保护整条消息的输出。
+
+### 12. 小结：通知停止和等待结束是两件事
+
+| 代码 | 作用 |
+| --- | --- |
+| `std::thread worker(DoWork);` | 创建线程并执行 `DoWork` |
+| `std::this_thread::get_id()` | 获取当前线程 ID |
+| `std::this_thread::sleep_for(...)` | 暂停当前线程一段时间 |
+| `g_stop.store(true)` | 写入线程安全的停止状态 |
+| `g_stop.load()` | 读取线程安全的停止状态 |
+| `worker.join()` | 等待工作线程执行结束 |
+| `worker.joinable()` | 检查线程能否被 `join` |
+
+一句话总结：
+
+```text
+停止标志负责告诉线程“该结束了”；
+join 负责让调用者等待“它确实已经结束”；
+跨线程共享停止标志时，应使用 atomic 而不是普通 bool。
+```

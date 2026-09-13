@@ -1,60 +1,40 @@
 #include <iostream>
-#include <string>
-#include <array>
-#include <vector>
+#include <thread>
 
-void Print()
-{
-    std::cout << "Hello, World!" << std::endl;
-}
+bool g_stop = false;
 
-void PrintNumber(int X)
+void DoWork()
 {
-    std::cout << "Number: " << X << std::endl;
-}
+    std::cout << "Worker thread started. Thread ID: " << std::this_thread::get_id() << std::endl;
 
-void PrintValue(int X)
-{
-    std::cout << "Vlaue : " << X << std::endl;
-}
-
-void ForEach(std::vector<int> numbers, void(*Function)(int))
-{
-    for (int number : numbers)
+    while (!g_stop)
     {
-        Function(number);
+        std::cout << "Working..." << std::endl;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     }
+
+    std::cout << "Worker thread stopping." << std::endl;
+}
+
+void finish()
+{
+    std::cout << "Input thread started. Thread ID: " << std::this_thread::get_id() << std::endl;
+    std::cin.get();
+    g_stop = true; 
 }
 
 int main()
 {
-    // Print();
-    void(*message)() = Print;
-    // message = Print;
-    message();
+    std::cout << "Main thread ID: " << std::this_thread::get_id() << std::endl;
 
-    auto message2 = Print;
-    message2();
+    std::thread worker(DoWork);
+    std::thread inputThread(finish);
 
-    void(*messageNumber)(int) = PrintNumber;
-    messageNumber(5);
+    // Wait for the worker thread to finish (this will never happen in this example)
+    worker.join();
+    inputThread.join();
 
-    auto messageNumber2 = PrintNumber;
-    messageNumber2(10);
-
-    typedef void(*HelloworldFunction)();
-
-    HelloworldFunction hellowrold = Print;
-    hellowrold();
-
-    typedef void(*PrintNumberFunction)(int);
-    PrintNumberFunction printNumber = PrintNumber;
-    printNumber(100);
-
-    std::vector<int> numbers = {1, 2, 3, 4, 5};
-    ForEach(numbers, PrintValue);
-    ForEach(numbers, [](int X){ std::cout << "Lambda Value: " << X << std::endl;});
-
-
+    // std::cout << "All threads finished." << std::endl;
+    // std::cin.get();
     return 0;
 }
