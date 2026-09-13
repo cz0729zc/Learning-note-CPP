@@ -5038,3 +5038,235 @@ if (function)
 回调则把这个地址传给通用流程，
 让“遍历什么”和“对元素做什么”彼此分离。
 ```
+
+---
+
+## 为什么不建议 using namespace std (Why Not using namespace std)
+
+这一部分对应 [视频合集第 61 P：为什么我不使用 using namespace std](https://www.bilibili.com/video/BV1Dk4y1j7oj/?p=61)。由于合集最前面额外加入了“C++ 简史”，页面参数是 `p=61`，实际分集标题编号是“【60】”。
+
+视频讨论的重点不是说 `using namespace std;` 在语法上错误，而是说明它会把标准库中的大量名称带入当前作用域，增加命名冲突和阅读成本。
+
+### 1. std 是标准库的命名空间
+
+C++ 标准库的大部分类型、函数和对象都位于 `std` 命名空间中：
+
+```cpp
+std::cout
+std::string
+std::vector
+std::sort
+```
+
+`::` 是作用域解析运算符。`std::vector` 可以读成：
+
+```text
+在 std 命名空间中
+查找名为 vector 的类型
+```
+
+命名空间的主要作用是组织代码，并允许不同库使用相同的短名称而不互相冲突。
+
+### 2. using namespace std 做了什么？
+
+写下：
+
+```cpp
+using namespace std;
+```
+
+之后，在该指令生效的作用域中，可以省略 `std::`：
+
+```cpp
+cout << "Hello" << endl;
+vector<int> numbers;
+string name;
+```
+
+它们原本完整的写法是：
+
+```cpp
+std::cout << "Hello" << std::endl;
+std::vector<int> numbers;
+std::string name;
+```
+
+`using namespace` 只影响编译期的名称查找，不会复制标准库代码，也不会让程序运行得更快或更慢。
+
+### 3. 主要问题：名称可能发生冲突
+
+假设两个命名空间中都有同名函数：
+
+```cpp
+namespace Engine
+{
+    void Print()
+    {
+        std::cout << "Engine" << std::endl;
+    }
+}
+
+namespace Debug
+{
+    void Print()
+    {
+        std::cout << "Debug" << std::endl;
+    }
+}
+```
+
+如果同时把两个命名空间全部引入：
+
+```cpp
+using namespace Engine;
+using namespace Debug;
+
+Print(); // 错误：编译器无法判断调用哪一个 Print
+```
+
+保留限定名称就不会含糊：
+
+```cpp
+Engine::Print();
+Debug::Print();
+```
+
+`std` 中包含的名称很多，而且标准库会继续演进。当前没有冲突的短名称，将来可能因为加入新的标准库名称或第三方库而产生歧义。
+
+> [!IMPORTANT]
+> `using namespace std;` 最大的问题不是代码立刻不能运行，而是它扩大了当前作用域中的候选名称，让未来的冲突更难预测。
+
+### 4. std:: 前缀也是有用的信息
+
+当前 `main.cpp` 使用了：
+
+```cpp
+std::cout << "Hello, World!" << std::endl;
+std::vector<int> numbers = {1, 2, 3, 4, 5};
+```
+
+看到 `std::cout` 和 `std::vector`，读者立刻知道它们来自 C++ 标准库。
+
+如果省略前缀：
+
+```cpp
+cout << "Hello, World!" << endl;
+vector<int> numbers = {1, 2, 3, 4, 5};
+```
+
+阅读者必须结合文件顶部的 `using` 指令，才能判断这些名称来自标准库、项目代码还是第三方库。
+
+因此，`std::` 不只是多余字符，它还在表达名称的来源。
+
+### 5. 头文件中尤其不能随意使用
+
+不建议在头文件中写：
+
+```cpp
+// SomeHeader.h
+#pragma once
+
+using namespace std;
+```
+
+`#include` 本质上会把头文件内容带入包含它的翻译单元。任何包含 `SomeHeader.h` 的源文件都会受到这条 `using namespace std;` 的影响。
+
+这会产生两个问题：
+
+* 使用头文件的人没有主动选择，却被迫引入了整个 `std` 命名空间；
+* 冲突可能出现在调用方代码中，而错误根源藏在另一个头文件里。
+
+项目中的 `include/Log.h` 没有写 `using namespace std;`，这能避免头文件向外部作用域泄漏名称。
+
+> [!WARNING]
+> 在公共头文件中使用 `using namespace`，会把名称查找影响传播给所有包含者。应当在声明中写完整限定名。
+
+### 6. 更安全的替代方式
+
+最直接的方式是保留完整限定名称：
+
+```cpp
+std::vector<int> numbers;
+std::cout << numbers.size() << std::endl;
+```
+
+如果某个名称在很小的作用域内反复出现，可以只引入需要的名称：
+
+```cpp
+void PrintValues()
+{
+    using std::cout;
+    using std::endl;
+
+    cout << "Hello" << endl;
+}
+```
+
+这种写法与 `using namespace std;` 不同：
+
+```text
+using namespace std;  引入命名空间中的所有可见名称
+using std::cout;      只引入明确指定的 cout
+```
+
+还可以把 `using` 限制在函数或更小的代码块中，让它的影响范围保持清楚。
+
+### 7. 源文件中能不能使用？
+
+在实现文件的局部作用域中，`using namespace std;` 并不是绝对禁止的语法。小型示例、临时代码或作用域非常明确时，它可能比较方便。
+
+但作用域越大、项目维护时间越长、依赖的库越多，名称冲突的风险就越高。
+
+可以按下面的优先级选择：
+
+1. 默认使用 `std::vector`、`std::string` 这样的完整名称；
+2. 名称频繁出现时，在函数内部使用 `using std::vector;`；
+3. 确实需要引入整个命名空间时，把作用域限制得尽量小；
+4. 不要在公共头文件或文件全局范围随意使用 `using namespace std;`。
+
+### 8. 不要在 std 中添加自己的普通名称
+
+避免通过下面的方式“省略前缀”：
+
+```cpp
+namespace std
+{
+    void MyFunction();
+}
+```
+
+`std` 是标准库保留的命名空间。除标准明确允许的少数定制点外，不应把自己的类型或函数放入其中。
+
+项目代码应该使用自己的命名空间：
+
+```cpp
+namespace Project
+{
+    void MyFunction();
+}
+```
+
+调用时写成：
+
+```cpp
+Project::MyFunction();
+```
+
+这样既不会污染标准库命名空间，也能明确表示代码归属。
+
+### 9. 小结：显式前缀换来更清楚的边界
+
+| 写法 | 影响范围 | 建议 |
+| --- | --- | --- |
+| `std::vector<int>` | 只限定当前名称 | 默认推荐 |
+| `using std::vector;` | 引入一个指定名称 | 可在局部作用域使用 |
+| `using namespace std;` | 引入整个命名空间参与查找 | 尽量限制作用域 |
+| 头文件中的 `using namespace std;` | 影响所有包含者 | 避免使用 |
+
+一句话总结：
+
+```text
+std:: 前缀不是无意义的噪音；
+它能标明名称来源、缩小查找范围，
+并减少当前代码和未来标准库之间的命名冲突。
+```
